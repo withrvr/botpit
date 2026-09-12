@@ -28,8 +28,8 @@ branch; only the phase branch opens a PR into `master`.
 | 0 | Research, decisions, proposal | done 2026-09-12 |
 | 1 | Scaffold, event schema, environments | done 2026-09-12 (PR #1) |
 | 2 | Game contract + UNO, Flip, No Mercy, Hearts | done pending PR |
-| 2b | Adopt full-stack-fastapi-template as base (owner decision 2026-09-12) | done pending PR |
-| 3 | Deterministic referee, mixed seats | |
+| 2b | Adopt full-stack-fastapi-template as base (owner decision 2026-09-12) | done 2026-09-12 (PR #3) |
+| 3 | Deterministic referee, mixed seats | in progress (with 4 and 5 on one branch) |
 | 4 | Privacy gate, prompt builder, human redaction | |
 | 5 | Agent client, swappable backend | |
 | 6 | Auth, accounts, roles/permissions | |
@@ -56,7 +56,25 @@ branch; only the phase branch opens a PR into `master`.
   beyond one registry line.
 - Total suite: 458 tests, ~18 s.
 
-## Phase 2b — done pending PR: template adopted
+## Phase 3 — in progress (branch phase-3-referee, also carries Phases 4-5)
+
+- `backend/app/referee/`: `SeatSpec`, `SeatController`, `HumanController`,
+  `PolicyController`, `ScriptedController`, `fallback_move`, `Referee`
+  (turn loop with retries, deadlines, fallback, event publication,
+  `replay`), `GameRunner`. 13 tests: every game finishes with policy seats
+  and replays from the log; a human seat fed through the runner produces
+  the same final state as a scripted one; agent retry-then-fallback; human
+  retry-until-deadline; player subscribers only see their own views; stop
+  publishes `room.stopped`.
+- Event schema gained `game.move_rejected`, `game.turn_timed_out`,
+  `game.view_updated`; `game.started`/`turn_started`/`move_applied`/
+  `finished` carry more fields.
+- Next on this branch: Phase 4 (move JSON schema, persona, prompt builder,
+  human view payload, privacy fuzz suite) and Phase 5 (LLM client with
+  Ollama-native and OpenAI-compatible adapters, registry, fake client,
+  AgentController, live Ollama smoke test).
+
+## Phase 2b — done 2026-09-12 (PR #3): template adopted
 
 Owner decision 2026-09-12: https://github.com/fastapi/full-stack-fastapi-template
 is the base. Done:

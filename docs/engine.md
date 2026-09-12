@@ -71,9 +71,30 @@ one hook a game overrides when a holder must not see part of their own card.
 
 ## Referee (Phase 3)
 
-Deterministic. Owns turn order, validation, application, win detection.
-Seats are abstract: human websocket moves and agent completions arrive as
-the same validated move shape.
+`app.referee` drives one game to completion. It owns turn order,
+validation, application and win detection; the game module owns the rules.
+
+- `SeatController` is the only interface between the referee and a player:
+  `async decide(view, ctx) -> dict`. `HumanController` (queue fed by the
+  transport), `PolicyController` / `ScriptedController` (tests, fallbacks)
+  and the LLM `AgentController` (Phase 5) all satisfy it. The referee never
+  branches on who fills a seat; `SeatSpec.kind` only sets the retry policy.
+- Every turn: publish `game.turn_started`, build `player_view`, ask the
+  controller, `parse_move` + `apply` as the validator. A refused move is
+  published as `game.move_rejected` (seat-visible) with the reason and, for
+  non-human seats, counts against `max_retries`; humans retry until the
+  turn deadline. On exhaustion or timeout the referee plays
+  `fallback_move` (the first legal move) and publishes
+  `game.turn_timed_out` when a deadline caused it.
+- After every move: `game.move_applied` (public, with `move_index` and a
+  description) and one `game.view_updated` per seat (seat-visible) so a
+  player client and the privileged focus view read the same stream.
+- `Referee.replay(slug, seed, seat_count, moves)` rebuilds the state from
+  the `move_applied` payloads; Phase 9 persistence relies on it.
+- `GameRunner` owns one asyncio task per room, `stop()` cancels it and the
+  referee publishes `room.stopped`; `submit_move()` feeds a human seat.
+- Wide events: one `game` event per game and one `game.turn` per turn with
+  seat, kind, model, attempts, retries, fallback and the applied move.
 
 ## Privacy gate (Phase 4)
 
