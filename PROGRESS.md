@@ -43,17 +43,34 @@ branch; only the phase branch opens a PR into `master`.
 | 15 | Production deployment (deferred until local complete) | |
 | 16 | Scale and polish | |
 
-## Phase 1 — in progress
+## Phase 1 — done pending PR review
 
-Done:
+Delivered on `phase-1-scaffold`:
 - Research: `docs/local-model-setup.md`, `docs/deployment.md`.
-- `pyproject.toml`, uv, ruff, mypy strict, pytest; `src/botpit/config.py`;
-  `.env.dev`, `.env.staging.example`, `.env.production.example`.
-- Task worktrees dispatched: logging, events (schema/filter/bus x2), db
-  (SQLAlchemy + Alembic), llm (health probe), infra (compose/Dockerfile/Caddy).
-
-In progress:
-- Task branches above; then app factory, request middleware, CI workflow.
+- `pyproject.toml` (uv, ruff, mypy strict, pytest-asyncio), `src/botpit/config.py`
+  (pydantic-settings, `BOTPIT_ENV` picks `.env.<env>`), `.env.dev`,
+  `.env.staging.example`, `.env.production.example`.
+- `botpit.logging`: wide events (`wide_event` context manager, contextvar,
+  correlation inheritance), JSON + console formatters, tail sampler.
+- `botpit.events`: envelope with `visibility` (public / seat:N / privileged),
+  typed payloads, `filter_for_subscriber` (privacy boundary), `EventBus`
+  protocol with `InMemoryEventBus` and `RedisStreamsEventBus` (WATCH/MULTI
+  seq assignment, XREAD fan-out, catch-up from last id), shared contract
+  tests on fakeredis and real Redis.
+- `botpit.db`: SQLAlchemy 2.0 async base/session, portable mixins, Alembic
+  env for SQLite + Postgres, `runtime_settings` table + migration 0001,
+  programmatic `upgrade_to_head`, autogenerate-diff guard test.
+- `botpit.llm.health`: provider-agnostic probe (`ollama_native`,
+  `openai_compat`), startup gate.
+- `botpit.app`: factory, lifespan (logging, migrate, bus, LLM gate),
+  `/health`, `/health/llm`, request wide-event middleware.
+- Infra: Dockerfile (multi-stage uv, non-root), compose (app, postgres:17,
+  redis:8, `llm` and `proxy` profiles), dev override (host network so the
+  container reaches Windows Ollama; host ports 5433/6380), Caddyfile,
+  Makefile, CI workflow (lint, unit, integration with services, docker build).
+- Verified locally: unit suite green; integration suite green against
+  compose Postgres + Redis; app healthy natively and in compose against
+  the real Windows Ollama (4/4 models present).
 
 Open decisions raised mid-build:
 - GitHub branch protection on `master` is unavailable (private repo on the
@@ -61,3 +78,6 @@ Open decisions raised mid-build:
   master directly.
 - Original `DECISIONS.md` missing; reconstructed one committed. Owner to
   supply the original for a merge.
+- Ollama on Windows binds 127.0.0.1, so the dev app container uses host
+  networking instead of `host.docker.internal`. Servers do not have this
+  problem (the LLM is a compose service there).
