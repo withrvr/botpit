@@ -28,10 +28,10 @@ branch; only the phase branch opens a PR into `master`.
 | 0 | Research, decisions, proposal | done 2026-09-12 |
 | 1 | Scaffold, event schema, environments | done 2026-09-12 (PR #1) |
 | 2 | Game contract + UNO, Flip, No Mercy, Hearts | done pending PR |
-| 2b | Adopt full-stack-fastapi-template as base (owner decision 2026-09-12) | done pending PR |
-| 3 | Deterministic referee, mixed seats | |
-| 4 | Privacy gate, prompt builder, human redaction | |
-| 5 | Agent client, swappable backend | |
+| 2b | Adopt full-stack-fastapi-template as base (owner decision 2026-09-12) | done 2026-09-12 (PR #3) |
+| 3 | Deterministic referee, mixed seats | done pending PR (branch phase-3-referee) |
+| 4 | Privacy gate, prompt builder, human redaction | done pending PR (same branch) |
+| 5 | Agent client, swappable backend | done pending PR (same branch) |
 | 6 | Auth, accounts, roles/permissions | |
 | 7 | Rooms, seats, capacity, join queue | |
 | 8 | First live mixed game (terminal + API) | |
@@ -56,7 +56,38 @@ branch; only the phase branch opens a PR into `master`.
   beyond one registry line.
 - Total suite: 458 tests, ~18 s.
 
-## Phase 2b — done pending PR: template adopted
+## Phase 3 — in progress (branch phase-3-referee, also carries Phases 4-5)
+
+- `backend/app/referee/`: `SeatSpec`, `SeatController`, `HumanController`,
+  `PolicyController`, `ScriptedController`, `fallback_move`, `Referee`
+  (turn loop with retries, deadlines, fallback, event publication,
+  `replay`), `GameRunner`. 13 tests: every game finishes with policy seats
+  and replays from the log; a human seat fed through the runner produces
+  the same final state as a scripted one; agent retry-then-fallback; human
+  retry-until-deadline; player subscribers only see their own views; stop
+  publishes `room.stopped`.
+- Event schema gained `game.move_rejected`, `game.turn_timed_out`,
+  `game.view_updated`; `game.started`/`turn_started`/`move_applied`/
+  `finished` carry more fields.
+- Table-talk hooks: the referee calls an optional `say` after each move
+  and fans the line out to other controllers' `hear`.
+- Phase 4 (same branch): `app.games.move_schema` (self-contained JSON
+  schema per game, `move_adapter` on the contract), `app.agents.persona`
+  (6 built-ins), `app.agents.prompt` (two-call prompts, 3500-token budget,
+  PlayerView-only by construction), `app.api.views.view_payload`,
+  `tests/security/` fuzz suites for prompt and event-stream privacy.
+- Phase 5 (same branch): `app.llm.client` (protocol, errors, retries,
+  think-tag stripping, metrics hook), `OllamaNativeAdapter`,
+  `OpenAICompatAdapter`, `ModelRegistry` (+ `LLM_MODEL_OVERRIDES`),
+  `FakeLLMClient`, `AgentController` (repair loop, reasoning event, chat
+  call), live tests for a raw completion and a full agent turn per model
+  (`-m ollama`). Live agent turn per model on the 6 GB card, cold:
+  gemma3:4b 10 s, llama3.1:8b 14 s, qwen3:4b 8 s (thinking off),
+  phi4-mini 8 s; all four chose a legal move, gemma needed the
+  discriminator-required schema fix, qwen needed the echo-field-tolerant
+  legality check.
+
+## Phase 2b — done 2026-09-12 (PR #3): template adopted
 
 Owner decision 2026-09-12: https://github.com/fastapi/full-stack-fastapi-template
 is the base. Done:

@@ -73,16 +73,45 @@ class SeatFilled(_Frozen):
 
 
 class GameStarted(_Frozen):
-    pass
+    game: str = ""
+    seats: int = 0
+    seed: int = 0
+    seat_specs: list[dict[str, Any]] = []
 
 
 class TurnStarted(_Frozen):
     seat: int
+    turn_id: str = ""
+    deadline_ms: int = 0
+    kind: str = ""
 
 
 class MoveApplied(_Frozen):
     seat: int
     move: dict[str, Any]
+    description: str = ""
+    move_index: int = 0
+
+
+class MoveRejected(_Frozen):
+    """Publish with ``seat(n)`` visibility: only the mover learns why."""
+
+    seat: int
+    move: dict[str, Any] | None
+    reason: str
+    attempt: int
+
+
+class TurnTimedOut(_Frozen):
+    seat: int
+    fallback_move: dict[str, Any]
+
+
+class ViewUpdated(_Frozen):
+    """Publish with ``seat(n)`` visibility: the seat's full ``PlayerView``."""
+
+    seat: int
+    view: dict[str, Any]
 
 
 class HandUpdated(_Frozen):
@@ -115,6 +144,7 @@ class ChatMessage(_Frozen):
 class GameFinished(_Frozen):
     winner_seat: int | None
     ranking: list[int]
+    scores: list[int] = []
 
 
 class RoomStopped(_Frozen):
@@ -128,6 +158,9 @@ EVENT_TYPES: dict[str, type[BaseModel]] = {
     "game.started": GameStarted,
     "game.turn_started": TurnStarted,
     "game.move_applied": MoveApplied,
+    "game.move_rejected": MoveRejected,
+    "game.turn_timed_out": TurnTimedOut,
+    "game.view_updated": ViewUpdated,
     "game.hand_updated": HandUpdated,
     "game.finished": GameFinished,
     "agent.reasoning": AgentReasoning,

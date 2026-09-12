@@ -92,3 +92,20 @@ then `SET`s it and `XADD`s in one `MULTI` block. If another worker bumps
 the counter first the transaction aborts and retries, so `seq` order and
 stream order never disagree. The in-memory bus is single-process by
 definition; `create_event_bus` picks it only when `EVENT_BUS=memory`.
+
+## Referee events (Phase 3)
+
+| Type | Visibility | Payload |
+|---|---|---|
+| `game.started` | public | game, seats, seed, seat_specs |
+| `game.turn_started` | public | seat, turn_id, deadline_ms, kind |
+| `game.move_applied` | public | seat, move, description, move_index |
+| `game.move_rejected` | seat | seat, move, reason, attempt |
+| `game.turn_timed_out` | public | seat, fallback_move |
+| `game.view_updated` | seat | seat, view (the seat's full `PlayerView`) |
+| `game.finished` | public | winner_seat, ranking, scores |
+| `room.stopped` | public | reason |
+
+A privileged subscriber receives every `game.view_updated`, which is what
+the click-any-seat focus view renders; a player subscriber receives only
+its own.

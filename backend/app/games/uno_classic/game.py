@@ -92,6 +92,7 @@ def _uno_pending(state: UnoState) -> list[Seat]:
 
 class UnoClassic(Game[UnoState, UnoMove]):
     slug = "uno_classic"
+    move_adapter = MOVE_ADAPTER
     title = "Classic UNO"
     min_seats = 2
     max_seats = 10

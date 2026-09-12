@@ -1,5 +1,5 @@
 import warnings
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
     EmailStr,
@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: float = 120.0
     LLM_KEEP_ALIVE: str = "30m"
     LLM_NUM_CTX: int = 4096
+    # Per-model overrides of provider/base_url/num_ctx/keep_alive/timeout_s (JSON), e.g.
+    # {"qwen3:4b": {"provider": "openai_compat", "base_url": "http://llm-qwen:8080/v1"}}
+    LLM_MODEL_OVERRIDES: dict[str, dict[str, Any]] = {}
     # Opt-in: when true the API refuses to start without a healthy LLM backend.
     # Off by default so CI, tests and a clone without Ollama still serve; rooms
     # refuse to seat an AI player while /health/llm is degraded (Phase 7).
