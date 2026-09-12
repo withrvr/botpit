@@ -13,7 +13,7 @@ from typing import Any
 from app.games import get_game
 from app.games.base import AnyGame
 
-_DROP = frozenset({"title", "discriminator", "$defs"})
+_DROP = frozenset({"title", "discriminator", "$defs", "description"})
 
 
 def move_json_schema(game: AnyGame) -> dict[str, Any]:
@@ -49,6 +49,12 @@ def _inline(node: Any, defs: dict[str, Any]) -> Any:
             out[key] = _inline(value, defs)
     if out.get("type") == "object":
         out["additionalProperties"] = False
+        # A discriminator has a default in pydantic, so it is not "required" in
+        # the emitted schema; constrained generation then omits it and the move
+        # cannot be parsed. Every const/enum-of-one property must be present.
+        consts = [k for k, v in out.get("properties", {}).items() if "const" in v]
+        if consts:
+            out["required"] = sorted(set(out.get("required", [])) | set(consts))
     return out
 
 

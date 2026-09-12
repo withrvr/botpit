@@ -44,7 +44,7 @@ class AgentController:
         temperature: float = 0.7,
         num_ctx: int | None = None,
         keep_alive: str | None = None,
-        think: bool | None = None,
+        think: bool | None = False,
     ) -> None:
         self.game = game
         self.client = client
@@ -57,6 +57,8 @@ class AgentController:
         self.temperature = temperature
         self.num_ctx = num_ctx
         self.keep_alive = keep_alive
+        # Off by default: the prompt already asks for a written ``reasoning``
+        # field; qwen3's separate thinking pass costs ~60 s per turn on a 6 GB card.
         self.think = think
         self.recent_chat: list[ChatMessage] = []
         self.last_move_description: str | None = None

@@ -67,3 +67,30 @@ def test_schema_rejects_unknown_keys_and_kinds() -> None:
 def test_schema_is_cached_by_slug() -> None:
     game = get_game("hearts")
     assert move_json_schema(game) is move_json_schema(game)
+
+
+def _objects(node: object) -> list[dict[str, object]]:
+    found: list[dict[str, object]] = []
+    if isinstance(node, dict):
+        if node.get("type") == "object":
+            found.append(node)
+        for v in node.values():
+            found.extend(_objects(v))
+    elif isinstance(node, list):
+        for v in node:
+            found.extend(_objects(v))
+    return found
+
+
+@pytest.mark.parametrize("slug", sorted(GAME_CATALOG))
+def test_discriminators_are_required_and_no_descriptions(slug: str) -> None:
+    schema = move_json_schema(get_game(slug))
+    for obj in _objects(schema):
+        props = obj.get("properties", {})
+        assert isinstance(props, dict)
+        for name, prop in props.items():
+            if isinstance(prop, dict) and "const" in prop:
+                assert name in obj.get("required", []), (
+                    f"{slug}: {name} must be required"
+                )
+    assert "description" not in json.dumps(schema)

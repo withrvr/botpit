@@ -22,7 +22,7 @@ from app.referee import ControllerError, TurnContext
 pytestmark = pytest.mark.ollama
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 async def registry() -> ModelRegistry:
     health = await probe_health(settings)
     if not health.reachable:
