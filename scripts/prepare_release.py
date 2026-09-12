@@ -45,7 +45,7 @@ def update_release_notes(
     latest_header = f"{RELEASE_NOTES_HEADER}{LATEST_CHANGES_HEADER}\n"
     if not content.startswith(latest_header):
         raise RuntimeError(f"{release_notes_file} must start with {latest_header!r}")
-    if re.search(rf"^## {re.escape(version)}(?: \([^)]+\))?$", content, re.M):
+    if re.search(rf"^## {re.escape(version)}(?: \([^)]+\))?$", content, re.MULTILINE):
         raise RuntimeError(f"Release notes already contain a section for {version}")
 
     current_version = get_current_version(content, release_notes_file)

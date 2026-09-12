@@ -45,6 +45,36 @@ export type HTTPValidationError = {
 };
 
 /**
+ * HealthReport
+ */
+export type HealthReport = {
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * Env
+     */
+    env: string;
+    /**
+     * Database
+     */
+    database: string;
+    /**
+     * Event Bus
+     */
+    event_bus: string;
+    /**
+     * Llm
+     */
+    llm: string;
+};
+
+/**
  * ItemCreate
  */
 export type ItemCreate = {
@@ -110,6 +140,48 @@ export type ItemsPublic = {
      * Count
      */
     count: number;
+};
+
+/**
+ * LLMHealth
+ */
+export type LLMHealth = {
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Base Url
+     */
+    base_url: string;
+    /**
+     * Reachable
+     */
+    reachable: boolean;
+    /**
+     * Server Version
+     */
+    server_version?: string | null;
+    /**
+     * Models Present
+     */
+    models_present?: Array<string>;
+    /**
+     * Models Missing
+     */
+    models_missing?: Array<string>;
+    /**
+     * Latency Ms
+     */
+    latency_ms: number;
+    /**
+     * Error
+     */
+    error?: string | null;
+    /**
+     * Checked At
+     */
+    checked_at: string;
 };
 
 /**
@@ -920,6 +992,38 @@ export type itemsUpdateItemResponses = {
 };
 
 export type itemsUpdateItemResponse = itemsUpdateItemResponses[keyof itemsUpdateItemResponses];
+
+export type healthHealthData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/health/';
+};
+
+export type healthHealthResponses = {
+    /**
+     * Successful Response
+     */
+    200: HealthReport;
+};
+
+export type healthHealthResponse = healthHealthResponses[keyof healthHealthResponses];
+
+export type healthHealthLlmData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/health/llm';
+};
+
+export type healthHealthLlmResponses = {
+    /**
+     * Successful Response
+     */
+    200: LLMHealth;
+};
+
+export type healthHealthLlmResponse = healthHealthLlmResponses[keyof healthHealthLlmResponses];
 
 export type privateCreateUserData = {
     body: PrivateUserCreate;
