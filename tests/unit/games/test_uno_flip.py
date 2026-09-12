@@ -1,6 +1,6 @@
-"""UNO Flip!: the contract suite (privacy check replaced by a Flip-specific one,
-since hands hold double-faced cards but views show only the active face) plus
-scripted scenarios on hand-made states."""
+"""UNO Flip!: the full contract suite (the generic privacy check works through
+``Game.hand_view``), a Flip-specific privacy test that hidden faces never
+appear in any view, and scripted scenarios on hand-made states."""
 
 from __future__ import annotations
 

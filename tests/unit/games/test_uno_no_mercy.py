@@ -190,7 +190,9 @@ def test_skip_reverse_and_skip_everyone() -> None:
 
 def test_reverse_with_two_seats_acts_as_skip() -> None:
     s = make(cards("blue reverse", "blue 2"), None)
-    assert GAME.current_seat(play(s, 0)) == 0
+    after = play(s, 0)
+    assert GAME.current_seat(after) == 0
+    assert after.direction == -s.direction  # direction still flips, as in the other UNO games
 
 
 def test_draw_two_and_draw_four_set_pending() -> None:

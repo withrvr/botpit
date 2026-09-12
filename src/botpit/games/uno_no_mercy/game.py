@@ -358,10 +358,9 @@ class NoMercy(Game[NoMercyState, NoMercyMove]):
             case "skip":
                 steps = 2
             case "reverse":
+                w.flip()
                 if two:
                     steps = 0
-                else:
-                    w.flip()
             case "skip_all":
                 steps = 0
             case "wild_reverse_draw4":
