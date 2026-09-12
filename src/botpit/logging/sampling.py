@@ -22,7 +22,7 @@ class TailSampler(logging.Filter):
         super().__init__()
         self.sample_rate = sample_rate
         self.slow_ms = slow_ms
-        self.rng = rng or random.Random()  # noqa: S311
+        self.rng = rng or random.Random()
 
     def keep(self, fields: Mapping[str, Any]) -> bool:
         if fields.get("outcome") == "error" or fields.get("force_keep"):

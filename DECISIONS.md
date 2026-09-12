@@ -72,7 +72,10 @@ from seed and seat count, legal moves for a seat, apply move, is-terminal,
 ranking, `player_view(state, seat)` redaction, plus a rules markdown file
 handed to agents. New games are added by dropping in a module and a rules
 file without touching the referee, websocket layer or frontend. The fourth
-v1 game is the proof.
+v1 game is **Hearts** (trick-taking, 3-6 seats), chosen 2026-09-12 because
+tricks, follow-suit rules, a passing phase and lowest-score-wins exercise
+the contract in ways no UNO variant does. Contract details and baked
+decisions live in `docs/engine.md`.
 
 ## 5. Agent turn structure, RESOLVED 2026-09-12
 
@@ -156,6 +159,5 @@ recorded here when decided.
 
 ## Open decisions
 
-- OPEN: fourth v1 game (structurally different from UNO). Decide in Phase 2.
 - OPEN: auth library, RBAC approach (Casbin vs custom), rate limiter,
   feature-flag storage, frontend stack. Decide in Phases 6, 7, 10.
