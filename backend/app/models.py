@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from pydantic import EmailStr
-from sqlalchemy import DateTime
+from sqlalchemy import DateTime, Index
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -143,3 +143,61 @@ class HealthReport(SQLModel):
     database: str
     event_bus: str
     llm: str
+
+
+class Role(SQLModel, table=True):
+    id: uuid.UUID = Field(primary_key=True)
+    name: str = Field(unique=True, max_length=64)
+    scope: str = Field(max_length=16)  # "global" | "room"
+    description: str = Field(default="", max_length=255)
+
+
+class Permission(SQLModel, table=True):
+    id: uuid.UUID = Field(primary_key=True)
+    name: str = Field(unique=True, max_length=64)
+    description: str = Field(default="", max_length=255)
+
+
+class RolePermission(SQLModel, table=True):
+    __tablename__ = "role_permission"
+    role_id: uuid.UUID = Field(foreign_key="role.id", primary_key=True)
+    permission_id: uuid.UUID = Field(foreign_key="permission.id", primary_key=True)
+
+
+class UserRole(SQLModel, table=True):
+    __tablename__ = "user_role"
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id", primary_key=True, ondelete="CASCADE"
+    )
+    role_id: uuid.UUID = Field(foreign_key="role.id", primary_key=True)
+
+
+class RoomRole(SQLModel, table=True):
+    __tablename__ = "room_role"
+    __table_args__ = (Index("ix_room_role_room_id_user_id", "room_id", "user_id"),)
+    user_id: uuid.UUID = Field(
+        foreign_key="user.id", primary_key=True, ondelete="CASCADE"
+    )
+    role_id: uuid.UUID = Field(foreign_key="role.id", primary_key=True)
+    room_id: uuid.UUID = Field(primary_key=True)  # FK added in Phase 7 (rooms)
+
+
+class RolePublic(SQLModel):
+    id: uuid.UUID
+    name: str
+    scope: str
+    description: str
+
+
+class PermissionsPublic(SQLModel):
+    permissions: list[str]
+
+
+class RoleAssignment(SQLModel):
+    role: str
+    room_id: uuid.UUID | None = None
+
+
+class UserRolesPublic(SQLModel):
+    user_id: uuid.UUID
+    roles: list[RoleAssignment]

@@ -14,6 +14,10 @@ def create_user(*, session: Session, user_create: UserCreate) -> User:
     session.add(db_obj)
     session.commit()
     session.refresh(db_obj)
+    # lazy: app.authz imports app.models, which crud already imports
+    from app.authz.service import ensure_default_role
+
+    ensure_default_role(session, db_obj)
     return db_obj
 
 
