@@ -56,6 +56,7 @@ def _penalties(taken: tuple[tuple[FrenchCard, ...], ...]) -> list[int]:
 
 class Hearts(Game[HeartsState, HeartsMove]):
     slug = "hearts"
+    move_adapter = MOVE_ADAPTER
     title = "Hearts"
     min_seats = 3
     max_seats = 6
