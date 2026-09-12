@@ -148,11 +148,7 @@ def check_player_view_privacy(game: AnyGame, seat_count: int) -> None:
             assert view.seat == seat
             assert view.slug == game.slug
             assert view.hand_counts == [len(h) for h in state.hands]
-            own = [
-                c.model_dump(mode="json") if hasattr(c, "model_dump") else c
-                for c in state.hands[seat]
-            ]
-            assert view.hand == own
+            assert view.hand == game.hand_view(state, seat)
             assert view.terminal == game.is_terminal(state)
             assert view.current_seat == game.current_seat(state)
             expected = [m.model_dump(mode="json") for m in game.legal_moves(state, seat)]

@@ -31,7 +31,7 @@ from botpit.games.uno_flip.state import FlipState
 from tests.unit.games import contract as c
 
 SEATS = list(range(GAME.min_seats, GAME.max_seats + 1))
-CHECKS = [f for f in c.ALL_CHECKS if f is not c.check_player_view_privacy]
+CHECKS = list(c.ALL_CHECKS)
 
 
 @pytest.mark.parametrize("seats", SEATS)

@@ -55,6 +55,20 @@ random playouts terminate for many seeds, ranking is a permutation, and
 `player_view` privacy (own hand only, counts correct, only own legal moves,
 and reordering other seats' hands leaves the view byte-identical).
 
+### Games in the catalog
+
+| Slug | Title | Seats | Notes |
+|---|---|---|---|
+| `uno_classic` | Classic UNO | 2-10 | Wild Draw Four challenge, UNO catch window, draw-then-play |
+| `uno_flip` | UNO Flip! | 2-10 | double-faced cards, light/dark sides, `hand_view` shows active faces only |
+| `uno_no_mercy` | UNO Show 'em No Mercy | 2-10 | stacking, 7/0 rules, mercy elimination at 25 cards |
+| `hearts` | Hearts | 3-6 | sequential hidden passing, follow suit, shoot the moon |
+
+Each package's `rules.md` is the agent-facing rule text and records every
+rule decision the official rules leave open (draw-only-when-stuck in Flip,
+no-progress termination, tie-breaks). `Game.hand_view(state, seat)` is the
+one hook a game overrides when a holder must not see part of their own card.
+
 ## Referee (Phase 3)
 
 Deterministic. Owns turn order, validation, application, win detection.

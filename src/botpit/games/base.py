@@ -113,6 +113,13 @@ class Game[S: GameState, M: Move](ABC):
     def is_terminal(self, state: S) -> bool:
         return self.current_seat(state) is None
 
+    def hand_view(self, state: S, seat: Seat) -> list[dict[str, Any]]:
+        """What ``player_view(state, seat).hand`` must equal. Override when a
+        card has hidden parts even for its holder (UNO Flip shows one face)."""
+        return [
+            c.model_dump(mode="json") if hasattr(c, "model_dump") else c for c in state.hands[seat]
+        ]
+
     def check_seat_count(self, seat_count: int) -> None:
         if not self.min_seats <= seat_count <= self.max_seats:
             msg = f"{self.slug} takes {self.min_seats}-{self.max_seats} seats, not {seat_count}"

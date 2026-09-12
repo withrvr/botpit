@@ -380,6 +380,13 @@ class UnoFlip(Game[FlipState, FlipMove]):
         pts = [hand_points(h, state.side) for h in state.hands]
         return sorted(range(state.seat_count), key=lambda s: (s != state.winner, pts[s], s))
 
+    def hand_view(self, state: FlipState, seat: Seat) -> list[dict[str, Any]]:
+        """Active faces only: a holder never sees the hidden face of their own cards."""
+        return [
+            c.face(state.side).model_dump(mode="json") | {"index": i}
+            for i, c in enumerate(state.hands[seat])
+        ]
+
     def player_view(self, state: FlipState, seat: Seat) -> PlayerView:
         side, top = state.side, state.discard[-1].face(state.side)
         pending: int | str | None = None
@@ -404,10 +411,7 @@ class UnoFlip(Game[FlipState, FlipMove]):
             phase=state.phase,
             current_seat=self.current_seat(state),
             direction=state.direction,
-            hand=[
-                c.face(side).model_dump(mode="json") | {"index": i}
-                for i, c in enumerate(state.hands[seat])
-            ],
+            hand=self.hand_view(state, seat),
             hand_counts=[len(h) for h in state.hands],
             table=table,
             legal_moves=[m.model_dump(mode="json") for m in self.legal_moves(state, seat)],
