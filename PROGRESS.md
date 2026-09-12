@@ -32,8 +32,8 @@ branch; only the phase branch opens a PR into `master`.
 | 3 | Deterministic referee, mixed seats | done 2026-09-12 (PR #10) |
 | 4 | Privacy gate, prompt builder, human redaction | done 2026-09-12 (PR #10) |
 | 5 | Agent client, swappable backend | done 2026-09-12 (PR #10) |
-| 6 | Auth, accounts, roles/permissions | in progress (branch phase-6-auth, also carries the Redis parts of 7) |
-| 7 | Rooms, seats, capacity, join queue | |
+| 6 | Auth, accounts, roles/permissions | done 2026-09-12 (branch phase-6-auth, PR pending) |
+| 7 | Rooms, seats, capacity, join queue | next (data layer + Redis primitives already merged in Phase 6) |
 | 8 | First live mixed game (terminal + API) | |
 | 9 | Persistence and replay | |
 | 10 | Frontend: play, spectate, admin, focus view | |
@@ -56,16 +56,25 @@ branch; only the phase branch opens a PR into `master`.
   beyond one registry line.
 - Total suite: 458 tests, ~18 s.
 
-## Phase 6 — in progress (branch phase-6-auth)
+## Phase 6 — done 2026-09-12 (branch phase-6-auth)
 
-- Task `authz`: roles/permissions tables + seed migration, `load_permissions`,
-  `require_permission`, roles admin routes, default `player` role on signup,
-  `/users/me/permissions`, DB-backed tests.
-- Task `rooms-infra` (Phase 7 pieces with no table dependency): Redis client,
-  Lua sliding-window rate limiter + FastAPI dependency, join codes, ZSET join
-  queue with offers/sweep, CI starts Redis.
-- Then on the same branch: nothing else; Phase 7 (rooms, runtime settings,
-  flags, room service, routes) branches after this merges.
+- `authz`: roles/permissions tables + seed migration (4 default roles, 12
+  permissions), `load_permissions`, `require_permission` FastAPI dependency,
+  roles admin routes, default `player` role on signup, `/users/me/permissions`.
+- `rooms-infra`: Redis client singleton, Lua sliding-window rate limiter +
+  dependency, join codes (Crockford base32), ZSET join queue with
+  offers/sweep/ETA, CI starts Redis.
+- `rooms-tables`: `Room`/`RoomSeat`/`RuntimeSetting`/`FeatureFlag`/
+  `FeatureFlagOverride` tables and migration (closes the deferred
+  `room_role -> room` FK from the authz migration), admin-adjustable
+  settings and feature flags with a 5s per-process cache and precedence
+  (user override > role override > global), `/admin/settings`, `/admin/flags`,
+  `/flags/me`.
+- Suite: 651 tests, ruff/mypy/ty/prek all clean.
+- Ahead of the original phase split: the Redis capacity primitives and the
+  runtime-settings/feature-flags tables that §1.8/§1.10 assign to Phase 7
+  are already built. Phase 7 now only needs the `RoomService`, HTTP routes,
+  `SubscriptionGuard` and wiring `GameRunner` into the app lifespan.
 - Housekeeping: Dependabot opened PRs #4-#9 from the template's
   `dependabot.yml`; left for the owner.
 
