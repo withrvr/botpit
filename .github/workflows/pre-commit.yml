@@ -1,0 +1,80 @@
+name: pre-commit
+
+on:
+  pull_request:
+permissions: {}
+
+env:
+  CAN_PUSH: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 5
+    steps:
+      - name: Dump GitHub context
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+        run: echo "$GITHUB_CONTEXT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        name: Checkout PR for own repo
+        if: env.CAN_PUSH == 'true'
+        with:
+          # To be able to commit it needs to fetch the head of the branch, not the
+          # merge commit
+          ref: ${{ github.head_ref }}
+          # And it needs the full history to be able to compute diffs
+          fetch-depth: 0
+          persist-credentials: false
+      # pre-commit lite ci needs the default checkout configs to work
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        name: Checkout PR for fork
+        if: env.CAN_PUSH == 'false'
+        with:
+        # To be able to commit it needs the head branch of the PR, the remote one
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.12
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - name: Setup uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "latest-known"
+          cache-dependency-glob: |
+            requirements**.txt
+            pyproject.toml
+            uv.lock
+      - name: Install backend dependencies
+        run: uv sync --all-packages
+      - name: Install frontend dependencies
+        run: bun ci
+      - name: Run prek - pre-commit
+        # Check-only. The template auto-commits fixes through a GitHub App the
+        # fastapi org owns; botpit fails the job instead and you fix locally.
+        run: uv run prek run --from-ref origin/${GITHUB_BASE_REF} --to-ref HEAD --show-diff-on-failure
+
+  # https://github.com/marketplace/actions/alls-green#why
+  pre-commit-alls-green:  # This job does nothing and is only used for the branch protection
+    if: always()
+    needs:
+      - pre-commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dump GitHub context
+        env:
+          GITHUB_CONTEXT: ${{ toJson(github) }}
+        run: echo "$GITHUB_CONTEXT"
+      - name: Decide whether the needed jobs succeeded or failed
+        uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0
+        with:
+          jobs: ${{ toJSON(needs) }}

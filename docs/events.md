@@ -4,7 +4,7 @@ Every room produces one ordered stream of events. All readers (spectator UI,
 admin UI, each player's WebSocket, the agent runner) consume that one stream;
 the server filters it per subscriber before anything leaves the process.
 
-Code: `src/botpit/events/` (`schema.py`, `filter.py`, `bus.py`, `redis_bus.py`).
+Code: `backend/app/events/` (`schema.py`, `filter.py`, `bus.py`, `redis_bus.py`).
 
 ## Envelope
 

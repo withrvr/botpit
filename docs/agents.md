@@ -4,7 +4,7 @@
 
 ## Health probe
 
-`botpit.llm.probe_health(settings)` answers one question for the startup gate
+`app.llm.probe_health(settings)` answers one question for the startup gate
 and the admin "LLM" panel: is the backend reachable, and are the models in
 `LLM_MODELS` installed there? It never raises on network errors; it returns an
 `LLMHealth` with `reachable=False` and `error` set instead. The probe uses a

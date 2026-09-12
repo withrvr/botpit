@@ -28,7 +28,7 @@ branch; only the phase branch opens a PR into `master`.
 | 0 | Research, decisions, proposal | done 2026-09-12 |
 | 1 | Scaffold, event schema, environments | done 2026-09-12 (PR #1) |
 | 2 | Game contract + UNO, Flip, No Mercy, Hearts | done pending PR |
-| 2b | Adopt full-stack-fastapi-template as base (owner decision 2026-09-12) | next |
+| 2b | Adopt full-stack-fastapi-template as base (owner decision 2026-09-12) | done pending PR |
 | 3 | Deterministic referee, mixed seats | |
 | 4 | Privacy gate, prompt builder, human redaction | |
 | 5 | Agent client, swappable backend | |
@@ -56,17 +56,32 @@ branch; only the phase branch opens a PR into `master`.
   beyond one registry line.
 - Total suite: 458 tests, ~18 s.
 
-## Phase 2b — next: adopt the template
+## Phase 2b — done pending PR: template adopted
 
 Owner decision 2026-09-12: https://github.com/fastapi/full-stack-fastapi-template
-is the base. Plan (also in the session scratchpad): copy the template tree
-in (backend/, frontend/, compose files, workflows), port `botpit.*` modules
-to `backend/app/*` (games, events, logging, llm, middleware), fold our
-settings into `app/core/config.py`, replace our db layer with the template's
-SQLModel setup, wire the lifespan (logging, bus, LLM health) into
-`app/main.py`, add Redis to compose, keep React/TanStack frontend, rewrite
-deployment docs for Traefik. Python 3.14 (uv-managed) and Bun 1.4 verified
-on the dev box; the template builds and imports locally.
+is the base. Done:
+- Template tree vendored whole (backend/, frontend/, packages/, scripts/,
+  hooks/, .github/, .claude/, .agents/, .vscode/, img/, compose files, root
+  docs). Python 3.14 via uv, Bun 1.4.
+- botpit modules ported to `backend/app/`: `games`, `events`, `telemetry`
+  (renamed from `logging`, which shadowed the stdlib when scripts run from
+  `app/`), `llm`, `middleware.py`, `api/routes/health.py`.
+- Settings folded into `app/core/config.py` (upper-case fields);
+  `FASTAPI_ENV` now accepts staging/production; `env_name` property.
+- `app/main.py`: lifespan (logging, event bus, LLM health gate), wide-event
+  middleware, frontend mount guarded by directory existence.
+- Dropped: our async SQLAlchemy layer, Alembic dual-dialect setup, Caddy,
+  Makefile, our CI workflow, `.env.<env>` files (template uses one `.env`).
+- compose: `redis` service, botpit env vars on `backend`, dev override
+  publishes db/redis on 5433/6380 and disables the LLM startup gate inside
+  compose (Windows Ollama is not reachable from a bridge network).
+- Verified: ruff, mypy strict, ty clean; 509 tests green (template suite +
+  ours + Redis integration) against compose Postgres/Redis; native
+  `fastapi run` healthy with Ollama 4/4; frontend builds and is served at
+  `/`; backend image builds; full compose stack up behind Traefik.
+- Open: template workflows for releases/deploys are kept verbatim and will
+  be adapted in Phase 14; `docs/deployment.md` now defers to the template's
+  `deployment.md` for mechanics.
 
 ## Phase 1 — done (PR #1 merged 2026-09-12)
 
