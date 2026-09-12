@@ -122,3 +122,19 @@ async def close_stops_subscribers(bus: EventBus) -> None:
     await bus.close()
     with pytest.raises(StopAsyncIteration):
         await pending
+
+
+async def concurrent_publishers_keep_seq_and_stream_order(bus: EventBus, maxlen: int) -> None:
+    """Many tasks publishing to one room: seq is 1..n with no gaps and matches stream order."""
+    room_id = room()
+    n = min(maxlen, 40)
+    results = await asyncio.gather(*(bus.publish(event(room_id, i)) for i in range(n)))
+    assert sorted(e.seq for e in results if e.seq is not None) == list(range(1, n + 1))
+    history = await bus.history(room_id, since="0", limit=n)
+    assert [e.seq for e in history] == list(range(1, n + 1))
+
+
+async def ping_reflects_open_state(bus: EventBus) -> None:
+    assert await bus.ping() is True
+    await bus.close()
+    assert await bus.ping() is False

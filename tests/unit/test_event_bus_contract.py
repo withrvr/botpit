@@ -69,3 +69,16 @@ def test_factory_picks_by_settings(settings: Settings) -> None:
     assert isinstance(create_event_bus(settings), InMemoryEventBus)
     redis_settings = settings.model_copy(update={"event_bus": "redis"})
     assert isinstance(create_event_bus(redis_settings), RedisStreamsEventBus)
+
+
+async def test_concurrent_publishers_keep_order() -> None:
+    for bus in (
+        InMemoryEventBus(maxlen=1000),
+        RedisStreamsEventBus(fakeredis.aioredis.FakeRedis(), maxlen=1000),
+    ):
+        await c.concurrent_publishers_keep_seq_and_stream_order(bus, 1000)
+        await bus.close()
+
+
+async def test_ping(bus: EventBus) -> None:
+    await c.ping_reflects_open_state(bus)

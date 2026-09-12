@@ -26,6 +26,10 @@ class EventBus(Protocol):
         self, room_id: str, since: str | None = None, limit: int = 1000
     ) -> list[EventEnvelope]: ...
 
+    async def ping(self) -> bool:
+        """True when the backing store answers; used by ``/health``."""
+        ...
+
     async def close(self) -> None: ...
 
 
@@ -73,6 +77,9 @@ class InMemoryEventBus:
         self, room_id: str, since: str | None = None, limit: int = 1000
     ) -> list[EventEnvelope]:
         return self._after(room_id, 0 if since is None else _seq_of(since))[:limit]
+
+    async def ping(self) -> bool:
+        return not self._closed
 
     async def close(self) -> None:
         self._closed = True

@@ -72,3 +72,11 @@ async def test_history_limit(bus: EventBus) -> None:
 
 async def test_close_stops_subscribers(bus: EventBus) -> None:
     await c.close_stops_subscribers(bus)
+
+
+async def test_concurrent_publishers_keep_order() -> None:
+    bus = RedisStreamsEventBus.from_url(REDIS_URL, maxlen=1000)
+    try:
+        await c.concurrent_publishers_keep_seq_and_stream_order(bus, 1000)
+    finally:
+        await bus.close()

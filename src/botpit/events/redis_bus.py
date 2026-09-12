@@ -11,7 +11,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from redis.asyncio import Redis
-from redis.exceptions import RedisError
+from redis.exceptions import RedisError, WatchError
 
 from botpit.events.schema import EventEnvelope
 
@@ -45,21 +45,38 @@ class RedisStreamsEventBus:
     def stream_key(room_id: str) -> str:
         return f"botpit:room:{room_id}:events"
 
+    @staticmethod
+    def seq_key(room_id: str) -> str:
+        return f"botpit:room:{room_id}:seq"
+
     async def publish(self, event: EventEnvelope) -> EventEnvelope:
         if self._closed.is_set():
             msg = "event bus is closed"
             raise RuntimeError(msg)
-        # ponytail: INCR then XADD is two round trips; concurrent publishers to one
-        # room can interleave seq vs stream order. Rooms publish from one task today.
-        seq = int(await self._redis.incr(f"botpit:room:{event.room_id}:seq"))
-        published = event.model_copy(update={"seq": seq})
-        entry_id = await self._redis.xadd(
-            self.stream_key(event.room_id),
-            {"e": published.model_dump_json()},
-            maxlen=self._maxlen,
-            approximate=True,
-        )
-        return published.model_copy(update={"stream_id": _str(entry_id)})
+        # WATCH/MULTI keeps seq assignment and stream order consistent when several
+        # workers publish to one room: if another publisher bumps the counter between
+        # our read and our EXEC, the transaction aborts and we retry.
+        seq_key = self.seq_key(event.room_id)
+        stream = self.stream_key(event.room_id)
+        while True:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                await pipe.watch(seq_key)
+                current = await pipe.get(seq_key)
+                seq = int(current or 0) + 1
+                published = event.model_copy(update={"seq": seq})
+                pipe.multi()  # type: ignore[no-untyped-call]
+                await pipe.set(seq_key, seq)
+                await pipe.xadd(
+                    stream,
+                    {"e": published.model_dump_json()},
+                    maxlen=self._maxlen,
+                    approximate=True,
+                )
+                try:
+                    _, entry_id = await pipe.execute()
+                except WatchError:
+                    continue
+            return published.model_copy(update={"stream_id": _str(entry_id)})
 
     async def subscribe(
         self, room_id: str, since: str | None = None
@@ -87,6 +104,14 @@ class RedisStreamsEventBus:
         entries: Any = await self._redis.xrange(key, min=start, max="+", count=limit + 1)
         events = [_decode(i, f) for i, f in entries if _str(i) != since]
         return events[:limit]
+
+    async def ping(self) -> bool:
+        if self._closed.is_set():
+            return False
+        try:
+            return bool(await self._redis.ping())
+        except RedisError:
+            return False
 
     async def close(self) -> None:
         self._closed.set()
