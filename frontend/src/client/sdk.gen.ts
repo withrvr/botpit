@@ -2,7 +2,7 @@
 
 import { type Client, type Options as Options2, type TDataShape, urlSearchParamsBodySerializer } from './client';
 import { client } from './client.gen';
-import type { healthHealthData, healthHealthLlmData, healthHealthLlmResponses, healthHealthResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses } from './types.gen';
+import type { healthHealthData, healthHealthLlmData, healthHealthLlmResponses, healthHealthResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, rolesGrantUserRoleData, rolesGrantUserRoleErrors, rolesGrantUserRoleResponses, rolesReadPermissionsData, rolesReadPermissionsResponses, rolesReadRolesData, rolesReadRolesResponses, rolesReadUserRolesData, rolesReadUserRolesErrors, rolesReadUserRolesResponses, rolesRevokeUserRoleData, rolesRevokeUserRoleErrors, rolesRevokeUserRoleResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMePermissionsData, usersReadUserMePermissionsErrors, usersReadUserMePermissionsResponses, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -190,6 +190,20 @@ export class UsersService {
                 'Content-Type': 'application/json',
                 ...options.headers
             }
+        });
+    }
+    
+    /**
+     * Read User Me Permissions
+     *
+     * Get the current user's effective global permissions.
+     */
+    public static readUserMePermissions<ThrowOnError extends boolean = true>(options?: Options<usersReadUserMePermissionsData, ThrowOnError>) {
+        return (options?.client ?? client).get<usersReadUserMePermissionsResponses, usersReadUserMePermissionsErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/users/me/permissions',
+            ...options
         });
     }
     
@@ -384,6 +398,72 @@ export class HealthService {
             responseType: 'json',
             security: [{ scheme: 'bearer', type: 'http' }],
             url: '/api/v1/health/llm',
+            ...options
+        });
+    }
+}
+
+export class RolesService {
+    /**
+     * Read Roles
+     */
+    public static readRoles<ThrowOnError extends boolean = true>(options?: Options<rolesReadRolesData, ThrowOnError>) {
+        return (options?.client ?? client).get<rolesReadRolesResponses, unknown, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/roles/',
+            ...options
+        });
+    }
+    
+    /**
+     * Read Permissions
+     */
+    public static readPermissions<ThrowOnError extends boolean = true>(options?: Options<rolesReadPermissionsData, ThrowOnError>) {
+        return (options?.client ?? client).get<rolesReadPermissionsResponses, unknown, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/roles/permissions',
+            ...options
+        });
+    }
+    
+    /**
+     * Read User Roles
+     */
+    public static readUserRoles<ThrowOnError extends boolean = true>(options: Options<rolesReadUserRolesData, ThrowOnError>) {
+        return (options.client ?? client).get<rolesReadUserRolesResponses, rolesReadUserRolesErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/roles/users/{user_id}',
+            ...options
+        });
+    }
+    
+    /**
+     * Grant User Role
+     */
+    public static grantUserRole<ThrowOnError extends boolean = true>(options: Options<rolesGrantUserRoleData, ThrowOnError>) {
+        return (options.client ?? client).post<rolesGrantUserRoleResponses, rolesGrantUserRoleErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/roles/users/{user_id}',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+    
+    /**
+     * Revoke User Role
+     */
+    public static revokeUserRole<ThrowOnError extends boolean = true>(options: Options<rolesRevokeUserRoleData, ThrowOnError>) {
+        return (options.client ?? client).delete<rolesRevokeUserRoleResponses, rolesRevokeUserRoleErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/roles/users/{user_id}/{role}',
             ...options
         });
     }

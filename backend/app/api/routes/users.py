@@ -1,5 +1,5 @@
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import col, delete, func, select
@@ -10,11 +10,13 @@ from app.api.deps import (
     SessionDep,
     get_current_active_superuser,
 )
+from app.authz import current_permissions
 from app.core.config import settings
 from app.core.security import get_password_hash, verify_password
 from app.models import (
     Item,
     Message,
+    PermissionsPublic,
     UpdatePassword,
     User,
     UserCreate,
@@ -127,6 +129,16 @@ def read_user_me(current_user: CurrentUser) -> Any:
     Get current user.
     """
     return current_user
+
+
+@router.get("/me/permissions", response_model=PermissionsPublic)
+def read_user_me_permissions(
+    permissions: Annotated[frozenset[str], Depends(current_permissions)],
+) -> Any:
+    """
+    Get the current user's effective global permissions.
+    """
+    return PermissionsPublic(permissions=sorted(permissions))
 
 
 @router.delete("/me", response_model=Message)

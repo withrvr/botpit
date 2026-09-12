@@ -209,6 +209,16 @@ export type NewPassword = {
 };
 
 /**
+ * PermissionsPublic
+ */
+export type PermissionsPublic = {
+    /**
+     * Permissions
+     */
+    permissions: Array<string>;
+};
+
+/**
  * PrivateUserCreate
  */
 export type PrivateUserCreate = {
@@ -228,6 +238,42 @@ export type PrivateUserCreate = {
      * Is Verified
      */
     is_verified?: boolean;
+};
+
+/**
+ * RoleAssignment
+ */
+export type RoleAssignment = {
+    /**
+     * Role
+     */
+    role: string;
+    /**
+     * Room Id
+     */
+    room_id?: string | null;
+};
+
+/**
+ * RolePublic
+ */
+export type RolePublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Scope
+     */
+    scope: string;
+    /**
+     * Description
+     */
+    description: string;
 };
 
 /**
@@ -330,6 +376,20 @@ export type UserRegister = {
      * Full Name
      */
     full_name?: string | null;
+};
+
+/**
+ * UserRolesPublic
+ */
+export type UserRolesPublic = {
+    /**
+     * User Id
+     */
+    user_id: string;
+    /**
+     * Roles
+     */
+    roles: Array<RoleAssignment>;
 };
 
 /**
@@ -681,6 +741,36 @@ export type usersUpdatePasswordMeResponses = {
 
 export type usersUpdatePasswordMeResponse = usersUpdatePasswordMeResponses[keyof usersUpdatePasswordMeResponses];
 
+export type usersReadUserMePermissionsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Room Id
+         */
+        room_id?: string | null;
+    };
+    url: '/api/v1/users/me/permissions';
+};
+
+export type usersReadUserMePermissionsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type usersReadUserMePermissionsError = usersReadUserMePermissionsErrors[keyof usersReadUserMePermissionsErrors];
+
+export type usersReadUserMePermissionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: PermissionsPublic;
+};
+
+export type usersReadUserMePermissionsResponse = usersReadUserMePermissionsResponses[keyof usersReadUserMePermissionsResponses];
+
 export type usersRegisterUserData = {
     body: UserRegister;
     path?: never;
@@ -1024,6 +1114,139 @@ export type healthHealthLlmResponses = {
 };
 
 export type healthHealthLlmResponse = healthHealthLlmResponses[keyof healthHealthLlmResponses];
+
+export type rolesReadRolesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/roles/';
+};
+
+export type rolesReadRolesResponses = {
+    /**
+     * Response Roles-Read Roles
+     *
+     * Successful Response
+     */
+    200: Array<RolePublic>;
+};
+
+export type rolesReadRolesResponse = rolesReadRolesResponses[keyof rolesReadRolesResponses];
+
+export type rolesReadPermissionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/roles/permissions';
+};
+
+export type rolesReadPermissionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: PermissionsPublic;
+};
+
+export type rolesReadPermissionsResponse = rolesReadPermissionsResponses[keyof rolesReadPermissionsResponses];
+
+export type rolesReadUserRolesData = {
+    body?: never;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/api/v1/roles/users/{user_id}';
+};
+
+export type rolesReadUserRolesErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type rolesReadUserRolesError = rolesReadUserRolesErrors[keyof rolesReadUserRolesErrors];
+
+export type rolesReadUserRolesResponses = {
+    /**
+     * Successful Response
+     */
+    200: UserRolesPublic;
+};
+
+export type rolesReadUserRolesResponse = rolesReadUserRolesResponses[keyof rolesReadUserRolesResponses];
+
+export type rolesGrantUserRoleData = {
+    body: RoleAssignment;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/api/v1/roles/users/{user_id}';
+};
+
+export type rolesGrantUserRoleErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type rolesGrantUserRoleError = rolesGrantUserRoleErrors[keyof rolesGrantUserRoleErrors];
+
+export type rolesGrantUserRoleResponses = {
+    /**
+     * Successful Response
+     */
+    200: UserRolesPublic;
+};
+
+export type rolesGrantUserRoleResponse = rolesGrantUserRoleResponses[keyof rolesGrantUserRoleResponses];
+
+export type rolesRevokeUserRoleData = {
+    body?: never;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+        /**
+         * Role
+         */
+        role: string;
+    };
+    query?: {
+        /**
+         * Room Id
+         */
+        room_id?: string | null;
+    };
+    url: '/api/v1/roles/users/{user_id}/{role}';
+};
+
+export type rolesRevokeUserRoleErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type rolesRevokeUserRoleError = rolesRevokeUserRoleErrors[keyof rolesRevokeUserRoleErrors];
+
+export type rolesRevokeUserRoleResponses = {
+    /**
+     * Successful Response
+     */
+    200: Message;
+};
+
+export type rolesRevokeUserRoleResponse = rolesRevokeUserRoleResponses[keyof rolesRevokeUserRoleResponses];
 
 export type privateCreateUserData = {
     body: PrivateUserCreate;
