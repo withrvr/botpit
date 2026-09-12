@@ -30,6 +30,7 @@ frontend only see the contract.
 | `player_view(state, seat)` | the privacy gate (DECISIONS.md §9) |
 | `rules_markdown()` | the game's `rules.md`, handed to agents verbatim |
 | `describe_move(move)` | one line for logs and chat context |
+| `move_adapter` (ClassVar) | the game's `MOVE_ADAPTER` (`TypeAdapter` over its discriminated move union); `parse_move` validates through it and `app.games.move_schema.move_json_schema` derives the LLM output schema from it |
 
 ### Baked decisions
 
@@ -98,4 +99,12 @@ validation, application and win detection; the game module owns the rules.
 
 ## Privacy gate (Phase 4)
 
-One `player_view` function, two callers (agent prompt builder, human API).
+One `player_view` function, two callers:
+
+- `app.agents.prompt.build_move_prompt` / `build_chat_prompt` take a
+  `PlayerView` and nothing else from the game (see `docs/agents.md`).
+- `app.api.views.view_payload(game, state, seat)` is the one serialiser the
+  HTTP/websocket layer uses for a human's own seat.
+
+`tests/security/` treats the gate as a boundary: fuzzed prompts and a full
+referee event stream are checked for any other seat's cards.

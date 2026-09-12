@@ -177,6 +177,7 @@ class _Table:
 
 class UnoFlip(Game[FlipState, FlipMove]):
     slug = "uno_flip"
+    move_adapter = MOVE_ADAPTER
     title = "UNO Flip!"
     min_seats = 2
     max_seats = 10

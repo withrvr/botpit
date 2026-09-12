@@ -23,7 +23,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 Seat = int
 
@@ -80,6 +80,8 @@ class Game[S: GameState, M: Move](ABC):
     title: ClassVar[str]
     min_seats: ClassVar[int]
     max_seats: ClassVar[int]
+    move_adapter: ClassVar[TypeAdapter[Any]]
+    """The game's move union; ``parse_move`` and ``move_json_schema`` both read it."""
 
     @abstractmethod
     def new_game(self, seed: int, seat_count: int) -> S: ...

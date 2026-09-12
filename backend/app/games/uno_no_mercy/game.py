@@ -172,6 +172,7 @@ def _scores(
 
 class NoMercy(Game[NoMercyState, NoMercyMove]):
     slug = "uno_no_mercy"
+    move_adapter = MOVE_ADAPTER
     title = "UNO Show 'em No Mercy"
     min_seats = 2
     max_seats = 10
