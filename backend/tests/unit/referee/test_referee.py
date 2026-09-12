@@ -15,6 +15,7 @@ from app.events import (
     filter_for_subscriber,
 )
 from app.games import GAME_CATALOG, get_game
+from app.games.base import PlayerView
 from app.referee import (
     GameRunner,
     HumanController,
@@ -222,3 +223,34 @@ def test_fallback_is_first_legal_move() -> None:
     game = get_game("hearts")
     state = game.new_game(1, 4)
     assert fallback_move(game, state, 0) == game.legal_moves(state, 0)[0]
+
+
+class TalkativePolicy(PolicyController):
+    """A controller with the optional chat hooks; ``say`` publishes nothing itself."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.heard: list[str] = []
+        self.said = 0
+
+    async def say(self, view: PlayerView, description: str) -> str | None:
+        self.said += 1
+        return f"I just did: {description}" if self.said % 2 else None
+
+    def hear(self, messages: list[Any]) -> None:
+        self.heard.extend(m.text for m in messages)
+
+
+async def test_table_talk_hooks_are_optional_and_fanned_out() -> None:
+    game = get_game("hearts")
+    bus = InMemoryEventBus(maxlen=100_000)
+    talkers = {0: TalkativePolicy(), 1: TalkativePolicy(), 2: PolicyController()}
+    ref = Referee(game, bus, "t", 5, specs(3), talkers)  # type: ignore[arg-type]
+    await asyncio.wait_for(ref.run(), 60)
+    assert talkers[0].said > 0
+    # seat 1 heard seat 0's lines and never its own
+    assert talkers[1].heard
+    assert all(line.startswith("I just did") for line in talkers[1].heard)
+    assert len(talkers[1].heard) == (talkers[0].said + 1) // 2
+    # chat never entered the event log from the referee: the controller owns publishing
+    assert not any(e.type == "chat.message" for e in await collect(bus, "t"))

@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from app.events import (
     PRIVILEGED,
     PUBLIC,
+    ChatMessage,
     EventBus,
     EventEnvelope,
     GameFinished,
@@ -220,16 +221,41 @@ class Referee:
         self.state = next_state
         raw = move.model_dump(mode="json")
         self.moves.append(raw)
+        description = self.game.describe_move(move)
         await self._publish(
             MoveApplied(
                 seat=move.seat,
                 move=raw,
-                description=self.game.describe_move(move),
+                description=description,
                 move_index=len(self.moves) - 1,
             ),
             PUBLIC,
         )
         await self._publish_views()
+        await self._table_talk(move.seat, description)
+
+    async def _table_talk(self, seat: Seat, description: str) -> None:
+        """Call 2 (DECISIONS §5): chat after the move landed, never affecting state.
+
+        Duck-typed hooks keep ``SeatController`` at one method: a controller may
+        expose ``say(view, description) -> str | None`` and ``hear(messages)``.
+        """
+        say = getattr(self.controllers[seat], "say", None)
+        if say is None:
+            return
+        view = self.game.player_view(self.state, seat)
+        try:
+            text = await say(view, description)
+        except Exception:  # chat is downstream-only: a failure must never stop the game
+            log.warning("table talk failed for seat %s", seat, exc_info=True)
+            return
+        if not text:
+            return
+        message = ChatMessage(seat=seat, text=text)
+        for other, controller in self.controllers.items():
+            hear = getattr(controller, "hear", None)
+            if other != seat and hear is not None:
+                hear([message])
 
     async def _publish_views(self) -> None:
         for s in self.specs:
