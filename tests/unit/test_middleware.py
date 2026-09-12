@@ -32,11 +32,7 @@ def _app() -> FastAPI:
 
 
 def _wide(caplog: pytest.LogCaptureFixture) -> list[dict[str, object]]:
-    return [
-        getattr(r, "wide")
-        for r in caplog.records
-        if r.name == "botpit.wide"  # noqa: B009
-    ]
+    return [r.wide for r in caplog.records if r.name == "botpit.wide"]
 
 
 async def test_request_emits_wide_event_and_header(caplog: pytest.LogCaptureFixture) -> None:
