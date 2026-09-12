@@ -116,6 +116,10 @@ class AgentController:
                     "your reply was not a JSON object with 'reasoning' and 'move'"
                 )
                 continue
+            if "seat" not in move:
+                move = move | {
+                    "seat": self.seat
+                }  # the prompt says every move carries it
             try:
                 parsed = self.game.parse_move(move)
             except ValidationError as exc:
@@ -123,8 +127,17 @@ class AgentController:
                 last_error = f"invalid move: {first.get('msg')}"
                 continue
             if parsed.seat != self.seat:
-                move = move | {"seat": self.seat}
-            return move
+                last_error = f"move.seat must be {self.seat}"
+                continue
+            normalised: dict[str, Any] = parsed.model_dump(mode="json")
+            if view.legal_moves and normalised not in view.legal_moves:
+                # Schema-valid but not playable now: the view already lists what is.
+                last_error = (
+                    f"{self.game.describe_move(parsed)} is not one of legal_moves; "
+                    "copy one of them exactly"
+                )
+                continue
+            return normalised
         raise ControllerError(
             f"{self.model}: no parseable move after {self.max_repairs + 1} tries"
         )
@@ -149,10 +162,11 @@ class AgentController:
         )
         try:
             result = await self.client.complete(req)
-            text = json.loads(result.text).get("say")
-        except (LLMError, ValueError, AttributeError) as exc:
+            data = json.loads(result.text)
+        except (LLMError, ValueError) as exc:
             log.info("chat call failed for seat %s: %s", self.seat, exc)
             return None
+        text = data.get("say") if isinstance(data, dict) else None
         if not isinstance(text, str) or not text.strip():
             return None
         text = text.strip()[:200]

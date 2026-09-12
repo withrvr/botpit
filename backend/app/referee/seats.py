@@ -49,7 +49,11 @@ class SeatController(Protocol):
 
 
 class ScriptedController:
-    """Plays a fixed list of move dicts, then raises ``ControllerError``."""
+    """Plays a fixed list of move dicts, then raises ``ControllerError``.
+
+    Every ``decide`` call consumes one entry, including calls made after a
+    rejection: a rejected scripted move is not retried, the next one is played.
+    """
 
     kind: ClassVar[SeatKind] = "scripted"
 

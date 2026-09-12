@@ -219,3 +219,45 @@ async def test_mixed_table_human_and_agents() -> None:
         if e.type == "game.turn_started"
     }
     assert kinds == {"human", "agent", "scripted"}
+
+
+async def test_wrong_seat_is_repaired_and_missing_seat_is_filled() -> None:
+    game = get_game("hearts")
+    state = game.new_game(2, 4)
+    view = game.player_view(state, 0)
+    legal = view.legal_moves[0]
+    wrong = dict(legal) | {"seat": 3}
+    missing = {k: v for k, v in legal.items() if k != "seat"}
+    client = FakeLLMClient(
+        [
+            json.dumps({"reasoning": "r", "move": wrong}),
+            json.dumps({"reasoning": "r", "move": missing}),
+        ]
+    )
+    agent = AgentController(
+        game, client, "fake", get_persona("steady"), InMemoryEventBus(), "r", 0
+    )
+    move = await agent.decide(view, _ctx(0))
+    assert move == legal
+    assert "move.seat must be 0" in client.requests[1].messages[-1].content
+
+
+async def test_parseable_but_not_legal_move_is_repaired_from_the_view() -> None:
+    game = get_game("uno_classic")
+    state = game.new_game(42, 2)
+    seat = game.current_seat(state)
+    assert seat is not None
+    view = game.player_view(state, seat)
+    legal = view.legal_moves[0]
+    illegal = dict(legal) | {"card_index": 99}  # parses fine, not in legal_moves
+    client = FakeLLMClient(
+        [
+            json.dumps({"reasoning": "r", "move": illegal}),
+            json.dumps({"reasoning": "r", "move": legal}),
+        ]
+    )
+    agent = AgentController(
+        game, client, "fake", get_persona("steady"), InMemoryEventBus(), "r", seat
+    )
+    assert await agent.decide(view, _ctx(seat)) == legal
+    assert "not one of legal_moves" in client.requests[1].messages[-1].content

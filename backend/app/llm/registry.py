@@ -66,6 +66,8 @@ class ModelRegistry:
             raise KeyError(msg) from None
 
     def client_for(self, model: str) -> LLMClient:
+        # Synchronous on purpose: no await between check and insert, so concurrent
+        # tasks cannot interleave here (asyncio runs one task at a time).
         if model not in self._clients:
             cfg = self.config_for(model)
             http = self._http.setdefault(cfg.base_url, httpx.AsyncClient())

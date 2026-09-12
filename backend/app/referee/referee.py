@@ -99,6 +99,10 @@ class Referee:
                 ev.set(outcome_detail="cancelled")
                 await self._publish(RoomStopped(reason="cancelled"), PUBLIC)
                 raise
+            except Exception as exc:
+                # A bug in a game module or controller: end the room visibly.
+                await self._publish(RoomStopped(reason=f"error: {exc}"), PUBLIC)
+                raise
             ranking = self.game.ranking(self.state)
             winner = ranking[0] if self.state.hands[ranking[0]] == () else None
             ev.set(turns=len(self.moves), winner=winner, ranking=ranking)
@@ -202,20 +206,28 @@ class Referee:
                             )
                             if spec.kind != "human" and attempt > spec.max_retries:
                                 ev.set(fallback=True, fallback_reason=last_error)
-                                move = fallback_move(self.game, self.state, seat)
-                                next_state = self.game.apply(self.state, move)
+                                move, next_state = self._fallback(seat)
                             continue
                         move = candidate
             except TimeoutError:
                 ev.set(fallback=True, fallback_reason="timeout", timed_out=True)
-                move = fallback_move(self.game, self.state, seat)
-                next_state = self.game.apply(self.state, move)
+                move, next_state = self._fallback(seat)
                 await self._publish(
                     TurnTimedOut(seat=seat, fallback_move=move.model_dump(mode="json")),
                     PUBLIC,
                 )
             ev.set(move=move.model_dump(mode="json"), attempts=attempt)
             await self._commit(move, next_state)
+
+    def _fallback(self, seat: Seat) -> tuple[Move, GameState]:
+        """The referee plays for a seat. A failure here is a game-module bug:
+        ``legal_moves`` offered something ``apply`` refuses."""
+        move = fallback_move(self.game, self.state, seat)
+        try:
+            return move, self.game.apply(self.state, move)
+        except IllegalMoveError as exc:
+            msg = f"{self.game.slug}: fallback move rejected: {exc.reason}"
+            raise RuntimeError(msg) from exc
 
     async def _commit(self, move: Move, next_state: GameState) -> None:
         self.state = next_state

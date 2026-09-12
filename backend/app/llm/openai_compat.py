@@ -22,12 +22,19 @@ if TYPE_CHECKING:
 
 class OpenAICompatAdapter:
     def __init__(
-        self, base_url: str, client: httpx.AsyncClient, timeout_s: float
+        self,
+        base_url: str,
+        client: httpx.AsyncClient,
+        timeout_s: float,
+        *,
+        owns_client: bool = False,
     ) -> None:
         base = base_url.rstrip("/")
         self.base_url = base if base.endswith("/v1") else f"{base}/v1"
         self.client = client
         self.timeout_s = timeout_s
+        # The registry shares one httpx client per base_url and owns its lifetime.
+        self.owns_client = owns_client
 
     def body(self, req: CompletionRequest) -> dict[str, Any]:
         body: dict[str, Any] = {
@@ -62,7 +69,8 @@ class OpenAICompatAdapter:
         )
 
     async def aclose(self) -> None:
-        await self.client.aclose()
+        if self.owns_client:
+            await self.client.aclose()
 
 
 @parsed

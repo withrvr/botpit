@@ -23,6 +23,7 @@ from app.referee import (
     Referee,
     ScriptedController,
     SeatSpec,
+    TurnContext,
     fallback_move,
 )
 
@@ -254,3 +255,52 @@ async def test_table_talk_hooks_are_optional_and_fanned_out() -> None:
     assert len(talkers[1].heard) == (talkers[0].said + 1) // 2
     # chat never entered the event log from the referee: the controller owns publishing
     assert not any(e.type == "chat.message" for e in await collect(bus, "t"))
+
+
+async def test_parseable_but_illegal_move_leaves_state_untouched() -> None:
+    game = get_game("hearts")
+    bus = InMemoryEventBus(maxlen=10_000)
+    state0 = game.new_game(1, 3)
+    legal = game.legal_moves(state0, 0)[0].model_dump(mode="json")
+    illegal = legal | {"cards": [0, 0, 0]}  # parses, apply rejects (duplicates)
+    script = ScriptedController([illegal, legal])
+    ref = Referee(
+        game,
+        bus,
+        "x",
+        1,
+        [SeatSpec(seat=0, kind="agent", player="a", max_retries=2), *specs(3)[1:]],
+        {0: script, 1: HumanController(), 2: HumanController()},
+    )
+    task = asyncio.create_task(ref.run())
+    while len(ref.moves) < 1:
+        await asyncio.sleep(0)
+    assert ref.moves[0] == legal
+    rejected = [e for e in await collect(bus, "x") if e.type == "game.move_rejected"]
+    assert len(rejected) == 1
+    assert "distinct" in rejected[0].payload["reason"]
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_game_module_error_ends_room_visibly() -> None:
+    class Broken(PolicyController):
+        async def decide(self, view: PlayerView, ctx: TurnContext) -> dict[str, Any]:
+            raise ZeroDivisionError("controller bug")
+
+    game = get_game("hearts")
+    bus = InMemoryEventBus(maxlen=10_000)
+    ref = Referee(
+        game,
+        bus,
+        "e",
+        1,
+        specs(3),
+        {0: Broken(), 1: PolicyController(), 2: PolicyController()},
+    )
+    with pytest.raises(ZeroDivisionError):
+        await ref.run()
+    last = (await collect(bus, "e"))[-1]
+    assert last.type == "room.stopped"
+    assert last.payload["reason"].startswith("error:")

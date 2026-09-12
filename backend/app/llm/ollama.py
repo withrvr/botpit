@@ -23,11 +23,15 @@ class OllamaNativeAdapter:
         client: httpx.AsyncClient,
         timeout_s: float,
         *,
+        owns_client: bool = False,
         num_ctx: int | None = None,
         keep_alive: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.client = client
+        # The registry shares one httpx client per base_url across adapters and
+        # owns its lifetime; a standalone adapter may take ownership explicitly.
+        self.owns_client = owns_client
         self.timeout_s = timeout_s
         # Registry-level defaults; a request that sets its own wins.
         self.num_ctx = num_ctx
@@ -66,7 +70,8 @@ class OllamaNativeAdapter:
         )
 
     async def aclose(self) -> None:
-        await self.client.aclose()
+        if self.owns_client:
+            await self.client.aclose()
 
 
 @parsed

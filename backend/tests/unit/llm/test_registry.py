@@ -70,3 +70,13 @@ def test_unknown_model(settings: Settings) -> None:
 def test_bad_override_key_rejected(settings: Settings) -> None:
     with pytest.raises(ValueError, match="extra"):
         _registry(settings, LLM_MODEL_OVERRIDES={"a:1b": {"nope": 1}})
+
+
+async def test_adapter_aclose_does_not_close_shared_client(settings: Settings) -> None:
+    reg = ModelRegistry.from_settings(settings)
+    a = reg.client_for(settings.LLM_MODELS[0])
+    b = reg.client_for(settings.LLM_MODELS[1])
+    await a.aclose()
+    assert not b.client.is_closed  # shared per base_url, registry-owned
+    await reg.aclose()
+    assert b.client.is_closed
