@@ -58,43 +58,9 @@ jobs:
       - name: Install frontend dependencies
         run: bun ci
       - name: Run prek - pre-commit
-        id: precommit
+        # Check-only. The template auto-commits fixes through a GitHub App the
+        # fastapi org owns; botpit fails the job instead and you fix locally.
         run: uv run prek run --from-ref origin/${GITHUB_BASE_REF} --to-ref HEAD --show-diff-on-failure
-        continue-on-error: true
-      - name: Check for changes
-        id: changes
-        run: |
-          if [[ -n "$(git status --porcelain)" ]]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Get PR Push token
-        id: pr-push
-        if: env.CAN_PUSH == 'true' && steps.changes.outputs.changed == 'true'
-        uses: tiangolo/pr-push@f336b3817f32ea9b8273a8c15f8ecb739ac38167 # 0.0.4
-      - name: Commit and push changes
-        if: env.CAN_PUSH == 'true' && steps.changes.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ steps.pr-push.outputs.token }}
-        run: |
-          git config user.name "pr-push[bot]"
-          git config user.email "pr-push[bot]@users.noreply.github.com"
-          gh auth setup-git
-          git add -A
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "🎨 Auto format and update with pre-commit"
-            git push
-          fi
-      - uses: pre-commit-ci/lite-action@5d6cc0eb514c891a40562a58a8e71576c5c7fb43 # v1.1.0
-        if: env.CAN_PUSH == 'false'
-        with:
-          msg: 🎨 Auto format and update with pre-commit
-      - name: Error out on pre-commit errors
-        if: steps.precommit.outcome == 'failure'
-        run: exit 1
 
   # https://github.com/marketplace/actions/alls-green#why
   pre-commit-alls-green:  # This job does nothing and is only used for the branch protection
