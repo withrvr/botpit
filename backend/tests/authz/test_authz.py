@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.core.db import engine
 from app.main import app
 from app.models import Permission, Role, RolePermission, User
+from tests.utils.room import create_room
 from tests.utils.user import create_random_user
 from tests.utils.utils import random_email, random_lower_string
 
@@ -66,7 +67,7 @@ def test_load_permissions_player_superuser_unknown(db: Session) -> None:
 
 def test_room_scoped_moderator_only_for_its_room(db: Session) -> None:
     user = create_random_user(db)
-    room, other = uuid.uuid4(), uuid.uuid4()
+    room, other = create_room(db).id, create_room(db).id
     grant_role(db, user.id, "moderator", room)
     mod = DEFAULT_ROLES["moderator"][2]
     assert load_permissions(db, user.id, room) == PLAYER | mod
@@ -169,7 +170,7 @@ def test_grant_validation(
         ).status_code
         == 422
     )
-    room = uuid.uuid4()
+    room = create_room(db).id
     r = client.post(url, headers=h, json={"role": "moderator", "room_id": str(room)})
     assert r.status_code == 200
     assert {"role": "moderator", "room_id": str(room)} in r.json()["roles"]
@@ -210,7 +211,7 @@ def test_require_permission_room_param(
     client: TestClient, normal_user_token_headers: dict[str, str], db: Session
 ) -> None:
     user = _normal_user(db)
-    room, other = uuid.uuid4(), uuid.uuid4()
+    room, other = create_room(db).id, create_room(db).id
     grant_role(db, user.id, "moderator", room)
     h = normal_user_token_headers
     assert (
