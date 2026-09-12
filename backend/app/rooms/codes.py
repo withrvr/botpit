@@ -19,7 +19,7 @@ def new_join_code(rng: _Rng = secrets) -> str:
 
 
 def normalise_code(text: str) -> str:
-    """Upper-case, strip separators, map look-alikes (i/l -> 1, o -> 0)."""
+    """Upper-case, strip separators, map ambiguous look-alike characters (i/l -> 1, o -> 0)."""
     return text.strip().upper().translate(_AMBIGUOUS)
 
 
