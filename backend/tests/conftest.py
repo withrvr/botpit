@@ -7,7 +7,17 @@ from sqlmodel import Session, delete
 from app.core.config import settings
 from app.core.db import engine, init_db
 from app.main import app
-from app.models import Item, RoomRole, User, UserRole
+from app.models import (
+    FeatureFlag,
+    FeatureFlagOverride,
+    Item,
+    Room,
+    RoomRole,
+    RoomSeat,
+    RuntimeSetting,
+    User,
+    UserRole,
+)
 from tests.utils.user import authentication_token_from_email
 from tests.utils.utils import get_superuser_token_headers
 
@@ -17,7 +27,16 @@ def db() -> Generator[Session]:
     with Session(engine) as session:
         init_db(session)
         yield session
-        for model in (Item, UserRole, RoomRole):
+        for model in (
+            Item,
+            UserRole,
+            RoomRole,
+            RoomSeat,
+            Room,
+            FeatureFlagOverride,
+            FeatureFlag,
+            RuntimeSetting,
+        ):
             session.execute(delete(model))
         statement = delete(User)
         session.execute(statement)

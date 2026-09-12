@@ -2,7 +2,7 @@
 
 import { type Client, type Options as Options2, type TDataShape, urlSearchParamsBodySerializer } from './client';
 import { client } from './client.gen';
-import type { healthHealthData, healthHealthLlmData, healthHealthLlmResponses, healthHealthResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, rolesGrantUserRoleData, rolesGrantUserRoleErrors, rolesGrantUserRoleResponses, rolesReadPermissionsData, rolesReadPermissionsResponses, rolesReadRolesData, rolesReadRolesResponses, rolesReadUserRolesData, rolesReadUserRolesErrors, rolesReadUserRolesResponses, rolesRevokeUserRoleData, rolesRevokeUserRoleErrors, rolesRevokeUserRoleResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMePermissionsData, usersReadUserMePermissionsErrors, usersReadUserMePermissionsResponses, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses } from './types.gen';
+import type { adminCreateOverrideData, adminCreateOverrideErrors, adminCreateOverrideResponses, adminReadFlagsData, adminReadFlagsResponses, adminReadSettingsData, adminReadSettingsResponses, adminRemoveOverrideData, adminRemoveOverrideErrors, adminRemoveOverrideResponses, adminUpdateFlagData, adminUpdateFlagErrors, adminUpdateFlagResponses, adminUpdateSettingData, adminUpdateSettingErrors, adminUpdateSettingResponses, flagsReadMyFlagsData, flagsReadMyFlagsResponses, healthHealthData, healthHealthLlmData, healthHealthLlmResponses, healthHealthResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, rolesGrantUserRoleData, rolesGrantUserRoleErrors, rolesGrantUserRoleResponses, rolesReadPermissionsData, rolesReadPermissionsResponses, rolesReadRolesData, rolesReadRolesResponses, rolesReadUserRolesData, rolesReadUserRolesErrors, rolesReadUserRolesResponses, rolesRevokeUserRoleData, rolesRevokeUserRoleErrors, rolesRevokeUserRoleResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMePermissionsData, usersReadUserMePermissionsErrors, usersReadUserMePermissionsResponses, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -464,6 +464,106 @@ export class RolesService {
             responseType: 'json',
             security: [{ scheme: 'bearer', type: 'http' }],
             url: '/api/v1/roles/users/{user_id}/{role}',
+            ...options
+        });
+    }
+}
+
+export class AdminService {
+    /**
+     * Read Settings
+     */
+    public static readSettings<ThrowOnError extends boolean = true>(options?: Options<adminReadSettingsData, ThrowOnError>) {
+        return (options?.client ?? client).get<adminReadSettingsResponses, unknown, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/admin/settings',
+            ...options
+        });
+    }
+    
+    /**
+     * Update Setting
+     */
+    public static updateSetting<ThrowOnError extends boolean = true>(options: Options<adminUpdateSettingData, ThrowOnError>) {
+        return (options.client ?? client).patch<adminUpdateSettingResponses, adminUpdateSettingErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/admin/settings/{key}',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+    
+    /**
+     * Read Flags
+     */
+    public static readFlags<ThrowOnError extends boolean = true>(options?: Options<adminReadFlagsData, ThrowOnError>) {
+        return (options?.client ?? client).get<adminReadFlagsResponses, unknown, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/admin/flags',
+            ...options
+        });
+    }
+    
+    /**
+     * Update Flag
+     */
+    public static updateFlag<ThrowOnError extends boolean = true>(options: Options<adminUpdateFlagData, ThrowOnError>) {
+        return (options.client ?? client).patch<adminUpdateFlagResponses, adminUpdateFlagErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/admin/flags/{key}',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+    
+    /**
+     * Create Override
+     */
+    public static createOverride<ThrowOnError extends boolean = true>(options: Options<adminCreateOverrideData, ThrowOnError>) {
+        return (options.client ?? client).post<adminCreateOverrideResponses, adminCreateOverrideErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/admin/flags/{key}/overrides',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+    
+    /**
+     * Remove Override
+     */
+    public static removeOverride<ThrowOnError extends boolean = true>(options: Options<adminRemoveOverrideData, ThrowOnError>) {
+        return (options.client ?? client).delete<adminRemoveOverrideResponses, adminRemoveOverrideErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/admin/flags/{key}/overrides/{override_id}',
+            ...options
+        });
+    }
+}
+
+export class FlagsService {
+    /**
+     * Read My Flags
+     */
+    public static readMyFlags<ThrowOnError extends boolean = true>(options?: Options<flagsReadMyFlagsData, ThrowOnError>) {
+        return (options?.client ?? client).get<flagsReadMyFlagsResponses, unknown, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/flags/me',
             ...options
         });
     }

@@ -1,8 +1,17 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any, Literal, Self
 
-from pydantic import EmailStr
-from sqlalchemy import DateTime, Index
+from pydantic import EmailStr, model_validator
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Index,
+    UniqueConstraint,
+)
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -179,7 +188,9 @@ class RoomRole(SQLModel, table=True):
         foreign_key="user.id", primary_key=True, ondelete="CASCADE"
     )
     role_id: uuid.UUID = Field(foreign_key="role.id", primary_key=True)
-    room_id: uuid.UUID = Field(primary_key=True)  # FK added in Phase 7 (rooms)
+    room_id: uuid.UUID = Field(
+        primary_key=True, foreign_key="room.id", ondelete="CASCADE"
+    )
 
 
 class RolePublic(SQLModel):
@@ -201,3 +212,192 @@ class RoleAssignment(SQLModel):
 class UserRolesPublic(SQLModel):
     user_id: uuid.UUID
     roles: list[RoleAssignment]
+
+
+# --- rooms (Phase 7) -------------------------------------------------------
+
+
+def _tz() -> Any:
+    return DateTime(timezone=True)
+
+
+class Room(SQLModel, table=True):
+    __table_args__ = (
+        Index("ix_room_status_visibility", "status", "visibility"),
+        Index("ix_room_created_at", "created_at"),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    code: str = Field(unique=True, index=True, max_length=12)
+    game: str = Field(max_length=64)
+    seat_count: int
+    status: str = Field(default="waiting", max_length=16)
+    visibility: str = Field(default="private", max_length=16)
+    creator_id: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", nullable=True, ondelete="SET NULL"
+    )
+    seed: int = Field(sa_type=BigInteger)
+    created_at: datetime = Field(default_factory=get_datetime_utc, sa_type=_tz())
+    started_at: datetime | None = Field(default=None, sa_type=_tz())
+    finished_at: datetime | None = Field(default=None, sa_type=_tz())
+
+
+class RoomSeat(SQLModel, table=True):
+    __tablename__ = "room_seat"
+    __table_args__ = (
+        UniqueConstraint("room_id", "seat", name="uq_room_seat_room_id_seat"),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    room_id: uuid.UUID = Field(foreign_key="room.id", ondelete="CASCADE")
+    seat: int
+    kind: str = Field(max_length=8)  # human | agent
+    user_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="user.id",
+        nullable=True,
+        ondelete="SET NULL",
+        index=True,
+    )
+    invited_user_id: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", nullable=True, ondelete="SET NULL"
+    )
+    model: str | None = Field(default=None, max_length=128)
+    persona: str | None = Field(default=None, max_length=64)
+    status: str = Field(default="open", max_length=8)  # open | filled
+
+
+class RoomSeatSpec(SQLModel):
+    kind: Literal["human", "agent"]
+    user_id: uuid.UUID | None = None
+    invited_user_id: uuid.UUID | None = None
+    model: str | None = Field(default=None, max_length=128)
+    persona: str | None = Field(default=None, max_length=64)
+
+
+class RoomCreate(SQLModel):
+    game: str = Field(max_length=64)
+    seat_count: int = Field(ge=2, le=10)
+    visibility: Literal["private", "unlisted", "public"] = "private"
+    seats: list[RoomSeatSpec]
+
+    @model_validator(mode="after")
+    def _seats_match_count(self) -> Self:
+        if len(self.seats) != self.seat_count:
+            raise ValueError("seats must have exactly seat_count entries")
+        return self
+
+
+class RoomSeatPublic(RoomSeatSpec):
+    id: uuid.UUID
+    seat: int
+    status: str
+
+
+class RoomPublic(SQLModel):
+    id: uuid.UUID
+    code: str
+    game: str
+    seat_count: int
+    status: str
+    visibility: str
+    creator_id: uuid.UUID | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    seats: list[RoomSeatPublic]
+
+
+class RoomsPublic(SQLModel):
+    data: list[RoomPublic]
+    count: int
+
+
+# --- runtime settings + feature flags (admin-adjustable, see docs/rooms.md) --
+
+
+class RuntimeSetting(SQLModel, table=True):
+    __tablename__ = "runtime_setting"
+    key: str = Field(primary_key=True, max_length=64)
+    value: Any = Field(sa_column=Column(JSON, nullable=False))
+    updated_at: datetime = Field(default_factory=get_datetime_utc, sa_type=_tz())
+    updated_by: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", nullable=True, ondelete="SET NULL"
+    )
+
+
+class RuntimeSettingPublic(SQLModel):
+    key: str
+    value: Any
+    default: Any
+    overridden: bool
+    description: str
+
+
+class RuntimeSettingsPublic(SQLModel):
+    data: list[RuntimeSettingPublic]
+
+
+class RuntimeSettingUpdate(SQLModel):
+    value: Any
+
+
+class FeatureFlag(SQLModel, table=True):
+    __tablename__ = "feature_flag"
+    key: str = Field(primary_key=True, max_length=64)
+    enabled: bool = False
+    description: str | None = Field(default=None, max_length=255)
+    updated_at: datetime = Field(default_factory=get_datetime_utc, sa_type=_tz())
+    updated_by: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", nullable=True, ondelete="SET NULL"
+    )
+
+
+class FeatureFlagOverride(SQLModel, table=True):
+    __tablename__ = "feature_flag_override"
+    __table_args__ = (
+        CheckConstraint(
+            "(role_id IS NULL) <> (user_id IS NULL)",
+            name="ck_feature_flag_override_role_xor_user",
+        ),
+        UniqueConstraint(
+            "flag_key",
+            "role_id",
+            "user_id",
+            name="uq_feature_flag_override_flag_key_role_id_user_id",
+        ),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    flag_key: str = Field(
+        foreign_key="feature_flag.key", ondelete="CASCADE", max_length=64
+    )
+    role_id: uuid.UUID | None = Field(
+        default=None, foreign_key="role.id", nullable=True, ondelete="CASCADE"
+    )
+    user_id: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", nullable=True, ondelete="CASCADE"
+    )
+    enabled: bool
+
+
+class FeatureFlagOverridePublic(SQLModel):
+    id: uuid.UUID
+    role: str | None
+    user_id: uuid.UUID | None
+    enabled: bool
+
+
+class FeatureFlagPublic(SQLModel):
+    key: str
+    enabled: bool
+    effective: bool
+    description: str | None
+    overrides: list[FeatureFlagOverridePublic]
+
+
+class FeatureFlagUpdate(SQLModel):
+    enabled: bool
+
+
+class FeatureFlagOverrideCreate(SQLModel):
+    role: str | None = None
+    user_id: uuid.UUID | None = None
+    enabled: bool
