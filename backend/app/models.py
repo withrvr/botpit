@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Index,
     UniqueConstraint,
+    text,
 )
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -358,11 +359,24 @@ class FeatureFlagOverride(SQLModel, table=True):
             "(role_id IS NULL) <> (user_id IS NULL)",
             name="ck_feature_flag_override_role_xor_user",
         ),
-        UniqueConstraint(
+        # A compound UniqueConstraint over (flag_key, role_id, user_id) would never
+        # fire here: exactly one of role_id/user_id is always NULL (see the CHECK
+        # above), and NULL is never equal to NULL for uniqueness purposes, so two
+        # partial unique indexes -- one per case -- are the only way to actually
+        # enforce "one override per flag+role" and "one override per flag+user".
+        Index(
+            "uq_feature_flag_override_flag_role",
             "flag_key",
             "role_id",
+            unique=True,
+            postgresql_where=text("role_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_feature_flag_override_flag_user",
+            "flag_key",
             "user_id",
-            name="uq_feature_flag_override_flag_key_role_id_user_id",
+            unique=True,
+            postgresql_where=text("user_id IS NOT NULL"),
         ),
     )
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)

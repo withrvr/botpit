@@ -30,6 +30,19 @@ def current_permissions(
     return cache[room_id]
 
 
+def global_permissions(
+    request: Request, session: SessionDep, user: CurrentUser
+) -> frozenset[str]:
+    """The current user's global (non-room-scoped) permissions.
+
+    Use this, not ``current_permissions`` directly, as a route dependency
+    whenever the contract is "my global permissions": ``current_permissions``
+    takes an optional ``room_id``, and FastAPI would otherwise expose that as
+    an undocumented, caller-controlled query parameter on the route.
+    """
+    return current_permissions(request, session, user, None)
+
+
 def require_permission(
     name: str, room_id_param: str | None = None
 ) -> Callable[..., User]:

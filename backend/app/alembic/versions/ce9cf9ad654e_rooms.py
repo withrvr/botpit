@@ -63,8 +63,22 @@ def upgrade():
     sa.ForeignKeyConstraint(['flag_key'], ['feature_flag.key'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['role_id'], ['role.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['user_id'], ['user.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('flag_key', 'role_id', 'user_id', name='uq_feature_flag_override_flag_key_role_id_user_id')
+    sa.PrimaryKeyConstraint('id')
+    )
+    # A compound UniqueConstraint over (flag_key, role_id, user_id) never fires:
+    # exactly one of role_id/user_id is always NULL (see the CHECK above), and
+    # NULL is never equal to NULL for uniqueness purposes. Two partial unique
+    # indexes -- one per case -- are what actually enforces "one override per
+    # flag+role" and "one override per flag+user".
+    op.create_index(
+        'uq_feature_flag_override_flag_role', 'feature_flag_override',
+        ['flag_key', 'role_id'], unique=True,
+        postgresql_where=sa.text('role_id IS NOT NULL'),
+    )
+    op.create_index(
+        'uq_feature_flag_override_flag_user', 'feature_flag_override',
+        ['flag_key', 'user_id'], unique=True,
+        postgresql_where=sa.text('user_id IS NOT NULL'),
     )
     op.create_table('room_seat',
     sa.Column('id', sa.Uuid(), nullable=False),

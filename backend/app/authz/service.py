@@ -12,6 +12,7 @@ from app.models import (
     Role,
     RoleAssignment,
     RolePermission,
+    Room,
     RoomRole,
     User,
     UserRole,
@@ -56,13 +57,17 @@ def grant_role(
     role_name: str,
     room_id: uuid.UUID | None = None,
 ) -> None:
-    """Idempotent. Raises ``LookupError`` for an unknown role, ``ValueError``
-    when ``room_id`` does not match the role's scope."""
+    """Idempotent. Raises ``LookupError`` for an unknown role or room,
+    ``ValueError`` when ``room_id`` does not match the role's scope."""
     role = get_role(session, role_name)
     if role is None:
         raise LookupError(f"unknown role: {role_name}")
     if (role.scope == "room") != (room_id is not None):
         raise ValueError(f"role {role_name!r} is {role.scope}-scoped")
+    if room_id is not None and session.get(Room, room_id) is None:
+        # Without this, an unknown room_id only fails at commit (FK violation),
+        # which is an unhandled IntegrityError -> 500 instead of a clean 404.
+        raise LookupError(f"unknown room: {room_id}")
     if room_id is None:
         if session.get(UserRole, (user_id, role.id)) is None:
             session.add(UserRole(user_id=user_id, role_id=role.id))
@@ -78,10 +83,13 @@ def revoke_role(
     room_id: uuid.UUID | None = None,
 ) -> bool:
     """Returns False when nothing was assigned. Raises ``LookupError`` for an
-    unknown role."""
+    unknown role, ``ValueError`` when ``room_id`` does not match the role's
+    scope (matching ``grant_role``'s validation, for symmetric misuse errors)."""
     role = get_role(session, role_name)
     if role is None:
         raise LookupError(f"unknown role: {role_name}")
+    if (role.scope == "room") != (room_id is not None):
+        raise ValueError(f"role {role_name!r} is {role.scope}-scoped")
     row = (
         session.get(UserRole, (user_id, role.id))
         if room_id is None

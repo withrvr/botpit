@@ -866,23 +866,9 @@ export type usersUpdatePasswordMeResponse = usersUpdatePasswordMeResponses[keyof
 export type usersReadUserMePermissionsData = {
     body?: never;
     path?: never;
-    query?: {
-        /**
-         * Room Id
-         */
-        room_id?: string | null;
-    };
+    query?: never;
     url: '/api/v1/users/me/permissions';
 };
-
-export type usersReadUserMePermissionsErrors = {
-    /**
-     * Validation Error
-     */
-    422: HTTPValidationError;
-};
-
-export type usersReadUserMePermissionsError = usersReadUserMePermissionsErrors[keyof usersReadUserMePermissionsErrors];
 
 export type usersReadUserMePermissionsResponses = {
     /**

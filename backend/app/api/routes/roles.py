@@ -58,8 +58,8 @@ def grant_user_role(
     _get_user(session, user_id)
     try:
         authz.grant_role(session, user_id, body.role, body.room_id)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Role not found")
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return UserRolesPublic(user_id=user_id, roles=list_roles(session, user_id))
@@ -75,8 +75,10 @@ def revoke_user_role(
     _get_user(session, user_id)
     try:
         removed = authz.revoke_role(session, user_id, role, room_id)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Role not found")
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if not removed:
         raise HTTPException(status_code=404, detail="Role not assigned")
     return Message(message="Role revoked")

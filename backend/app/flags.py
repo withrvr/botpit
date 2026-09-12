@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 import uuid
 
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, select
 
 from app.authz.service import get_role
@@ -42,13 +43,23 @@ def invalidate() -> None:
 
 
 def get_flag(session: Session, key: str) -> FeatureFlag | None:
-    """The row for ``key``; created on first read when ``key`` is known."""
+    """The row for ``key``; created on first read when ``key`` is known.
+
+    Two requests racing to seed the same unseeded flag both see ``None`` and
+    both try to insert; the loser's commit hits the primary key and must
+    fall back to the winner's row rather than raise.
+    """
     row = session.get(FeatureFlag, key)
     if row is None and key in KNOWN_FLAGS:
         row = FeatureFlag(key=key, description=KNOWN_FLAGS[key])
         session.add(row)
-        session.commit()
-        session.refresh(row)
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            row = session.get(FeatureFlag, key)
+        else:
+            session.refresh(row)
     return row
 
 
@@ -121,6 +132,8 @@ def set_override(
         if role_row is None:
             raise LookupError(f"unknown role: {role}")
         role_id = role_row.id
+    if user_id is not None and session.get(User, user_id) is None:
+        raise LookupError(f"unknown user: {user_id}")
     row = session.exec(
         select(FeatureFlagOverride).where(
             FeatureFlagOverride.flag_key == key,

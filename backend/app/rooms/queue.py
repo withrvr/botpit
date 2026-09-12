@@ -38,6 +38,19 @@ redis.call('HSET', KEYS[3], user, popped[2])
 return {user, deadline}
 """
 
+# KEYS = offer string key, offers ZSET; ARGV = user. Atomically takes the
+# offer: whichever of accept() and sweep() runs this first for a given user
+# wins (GETDEL + ZREM in one script), the other gets nil and does nothing.
+# This is what stops a user who accepted right at the deadline from also
+# being swept-and-requeued by a racing sweep() call, and vice versa.
+_CLAIM_OFFER = """
+local seat = redis.call('GETDEL', KEYS[1])
+if seat then
+    redis.call('ZREM', KEYS[2], ARGV[1])
+end
+return seat
+"""
+
 
 def _now_ms() -> int:
     return time.time_ns() // 1_000_000
@@ -57,6 +70,7 @@ class JoinQueue:
         self.offer_ttl_s = offer_ttl_s
         self.max_misses = max_misses
         self._offer_next = redis.register_script(_OFFER_NEXT)
+        self._claim_offer = redis.register_script(_CLAIM_OFFER)
 
     async def enqueue(self, scope: str, user_id: str) -> int:
         """Join (or re-join, no-op) the queue; returns the 1-based position."""
@@ -104,11 +118,17 @@ class JoinQueue:
         return user_id, deadline
 
     async def accept(self, scope: str, user_id: str) -> int | None:
-        """Claim the offered seat; ``None`` if there is no live offer."""
-        seat = await self._redis.getdel(f"offer:{scope}:{user_id}")
-        await self._forget(scope, user_id)
+        """Claim the offered seat; ``None`` if there is no live offer.
+
+        Goes through ``_claim_offer``, the same atomic step ``sweep`` uses, so
+        a racing sweep can never also requeue a seat this call just accepted.
+        """
+        seat = await self._claim_offer(
+            keys=[f"offer:{scope}:{user_id}", f"offers:{scope}"], args=[user_id]
+        )
         if seat is None:
             return None
+        await self._forget(scope, user_id)
         log.info("queue accept key=offer:%s:%s seat=%s", scope, user_id, seat)
         return int(seat)
 
@@ -121,9 +141,11 @@ class JoinQueue:
             "list[str]", await self._redis.zrangebyscore(offers, "-inf", now)
         )
         for user_id in expired:
-            if not await self._redis.zrem(offers, user_id):
-                continue  # accepted (or swept by another worker) meanwhile
-            await self._redis.delete(f"offer:{scope}:{user_id}")
+            seat = await self._claim_offer(
+                keys=[f"offer:{scope}:{user_id}", offers], args=[user_id]
+            )
+            if seat is None:
+                continue  # accepted (or already swept by another worker) meanwhile
             score = await self._redis.hget(f"scores:{scope}", user_id)
             misses_key = f"misses:{scope}:{user_id}"
             misses = int(await self._redis.incrby(misses_key, 1))

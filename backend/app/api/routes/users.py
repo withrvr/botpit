@@ -10,7 +10,7 @@ from app.api.deps import (
     SessionDep,
     get_current_active_superuser,
 )
-from app.authz import current_permissions
+from app.authz import global_permissions
 from app.core.config import settings
 from app.core.security import get_password_hash, verify_password
 from app.models import (
@@ -133,7 +133,7 @@ def read_user_me(current_user: CurrentUser) -> Any:
 
 @router.get("/me/permissions", response_model=PermissionsPublic)
 def read_user_me_permissions(
-    permissions: Annotated[frozenset[str], Depends(current_permissions)],
+    permissions: Annotated[frozenset[str], Depends(global_permissions)],
 ) -> Any:
     """
     Get the current user's effective global permissions.

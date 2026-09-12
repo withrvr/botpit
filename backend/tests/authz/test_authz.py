@@ -105,6 +105,24 @@ def test_me_permissions(
     assert r.json() == {"permissions": sorted(PLAYER)}
 
 
+def test_me_permissions_ignores_room_id_query_param(
+    client: TestClient, normal_user_token_headers: dict[str, str], db: Session
+) -> None:
+    """The route's contract is "my global permissions"; a caller-supplied
+    ``room_id`` must not switch it to room-scoped, even for a room where the
+    caller holds an elevated role."""
+    user = _normal_user(db)
+    room = create_room(db).id
+    grant_role(db, user.id, "moderator", room)
+    r = client.get(
+        f"{API}/users/me/permissions?room_id={room}",
+        headers=normal_user_token_headers,
+    )
+    assert r.status_code == 200
+    assert r.json() == {"permissions": sorted(PLAYER)}
+    revoke_role(db, user.id, "moderator", room)
+
+
 def test_roles_admin_gate(
     client: TestClient,
     superuser_token_headers: dict[str, str],

@@ -1,6 +1,6 @@
 """Roles and permissions (hand-built RBAC, see docs/roles-and-permissions.md)."""
 
-from app.authz.deps import current_permissions, require_permission
+from app.authz.deps import current_permissions, global_permissions, require_permission
 from app.authz.permissions import ALL_PERMISSIONS, DEFAULT_ROLES, P
 from app.authz.service import (
     ensure_default_role,
@@ -16,6 +16,7 @@ __all__ = [
     "P",
     "current_permissions",
     "ensure_default_role",
+    "global_permissions",
     "grant_role",
     "list_roles",
     "load_permissions",

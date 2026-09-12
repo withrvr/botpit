@@ -9,8 +9,18 @@ from sqlmodel import Session, delete, select
 
 from app import flags
 from app import settings_store as store
+from app.authz import P
 from app.core.config import settings
-from app.models import FeatureFlag, FeatureFlagOverride, RuntimeSetting, User
+from app.models import (
+    FeatureFlag,
+    FeatureFlagOverride,
+    Permission,
+    Role,
+    RolePermission,
+    RuntimeSetting,
+    User,
+    UserRole,
+)
 
 API = settings.API_V1_STR
 FLAG = "rooms.public_listing"
@@ -157,3 +167,34 @@ def test_flags_admin_and_me(
     assert r.json()["enabled"] is True
     me = client.get(f"{API}/flags/me", headers=normal_user_token_headers).json()
     assert me[FLAG] is True
+
+
+def test_settings_and_flags_permissions_are_distinct(
+    client: TestClient, normal_user_token_headers: dict[str, str], db: Session
+) -> None:
+    """A role holding only ``admin:manage_settings`` must not also unlock
+    ``/admin/flags``, and vice versa -- the two routers must not have been
+    wired to the same permission constant by mistake."""
+    user = db.exec(select(User).where(User.email == settings.EMAIL_TEST_USER)).one()
+    settings_only = Role(
+        id=uuid.uuid4(), name=f"settings-only-{uuid.uuid4().hex[:8]}", scope="global"
+    )
+    perm = db.exec(
+        select(Permission).where(Permission.name == P.ADMIN_MANAGE_SETTINGS)
+    ).one()
+    db.add(settings_only)
+    db.commit()
+    db.add(RolePermission(role_id=settings_only.id, permission_id=perm.id))
+    db.add(UserRole(user_id=user.id, role_id=settings_only.id))
+    db.commit()
+    h = normal_user_token_headers
+    try:
+        assert client.get(f"{API}/admin/settings", headers=h).status_code == 200
+        assert client.get(f"{API}/admin/flags", headers=h).status_code == 403
+    finally:
+        db.execute(delete(UserRole).where(UserRole.role_id == settings_only.id))
+        db.execute(
+            delete(RolePermission).where(RolePermission.role_id == settings_only.id)
+        )
+        db.delete(settings_only)
+        db.commit()

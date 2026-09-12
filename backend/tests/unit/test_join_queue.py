@@ -83,6 +83,22 @@ async def test_sweep_skips_accepted(q: JoinQueue, scope: str) -> None:
     assert await q.sweep(scope, now_ms=offered[1]) == []
 
 
+async def test_accept_fails_once_sweep_claims_it_first(
+    q: JoinQueue, scope: str
+) -> None:
+    """The reverse order of ``test_sweep_skips_accepted``: whichever of the two
+    claims the offer first through ``_claim_offer`` wins, the other must not
+    also succeed (a racing accept must never both grant a seat AND leave the
+    user requeued/miss-counted by a concurrent sweep)."""
+    await q.enqueue(scope, "a")
+    await q.enqueue(scope, "b")
+    offered = await q.offer_next(scope, 1)
+    assert offered is not None
+    assert await q.sweep(scope, now_ms=offered[1]) == ["a"]  # sweep wins first
+    assert await q.accept(scope, "a") is None  # too late: nothing left to claim
+    assert await q.position(scope, "a") == 1  # requeued, not silently dropped
+
+
 def test_eta_arithmetic() -> None:
     assert JoinQueue.eta_seconds(1, None) is None
     started = datetime.now(UTC) - timedelta(seconds=300)
