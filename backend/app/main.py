@@ -10,9 +10,11 @@ from starlette.middleware.cors import CORSMiddleware
 
 from app.api.main import api_router
 from app.core.config import settings
+from app.core.redis import close_redis
 from app.events import create_event_bus
 from app.llm import require_healthy_or_raise
 from app.middleware import WideEventMiddleware
+from app.ratelimit import RateLimited, rate_limited_handler
 from app.telemetry import configure_logging, get_logger
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
@@ -51,6 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         if app.state.bus is not None:
             await app.state.bus.close()
+        await close_redis()
         log.info("stopped")
 
 
@@ -62,6 +65,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_exception_handler(RateLimited, rate_limited_handler)
 app.add_middleware(WideEventMiddleware)
 app.add_middleware(
     CORSMiddleware,
