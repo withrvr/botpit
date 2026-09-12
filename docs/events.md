@@ -74,8 +74,21 @@ resumes with `XREAD` from its last `stream_id`.
 | key                              | use                                          |
 | -------------------------------- | -------------------------------------------- |
 | `botpit:room:{room_id}:events`   | stream, `XADD MAXLEN ~ maxlen`, one field `e` (envelope JSON) |
-| `botpit:room:{room_id}:seq`      | `INCR` before `XADD`; gives `seq`            |
+| `botpit:room:{room_id}:seq`      | `WATCH`+`MULTI` with `XADD`; gives `seq`     |
 
 `subscribe` is an `XREAD BLOCK 1000` loop that re-checks `close()` between
 blocks; `history` is `XRANGE`. `~` trimming is approximate: Redis keeps at
 least `maxlen`, possibly a little more.
+
+## Health
+
+Every bus implements `ping() -> bool`, reported by `GET /health` as
+`event_bus: "<memory|redis>:<ok|down>"`.
+
+## Multi-worker safety
+
+`RedisStreamsEventBus.publish` reads the per-room counter under `WATCH`,
+then `SET`s it and `XADD`s in one `MULTI` block. If another worker bumps
+the counter first the transaction aborts and retries, so `seq` order and
+stream order never disagree. The in-memory bus is single-process by
+definition; `create_event_bus` picks it only when `EVENT_BUS=memory`.
