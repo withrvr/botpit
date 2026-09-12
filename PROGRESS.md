@@ -26,8 +26,9 @@ branch; only the phase branch opens a PR into `master`.
 | Phase | Name | Status |
 |---|---|---|
 | 0 | Research, decisions, proposal | done 2026-09-12 |
-| 1 | Scaffold, event schema, environments | in progress |
-| 2 | Game contract + UNO, Flip, No Mercy, + one more | next |
+| 1 | Scaffold, event schema, environments | done 2026-09-12 (PR #1) |
+| 2 | Game contract + UNO, Flip, No Mercy, Hearts | done pending PR |
+| 2b | Adopt full-stack-fastapi-template as base (owner decision 2026-09-12) | next |
 | 3 | Deterministic referee, mixed seats | |
 | 4 | Privacy gate, prompt builder, human redaction | |
 | 5 | Agent client, swappable backend | |
@@ -43,7 +44,31 @@ branch; only the phase branch opens a PR into `master`.
 | 15 | Production deployment (deferred until local complete) | |
 | 16 | Scale and polish | |
 
-## Phase 1 — done pending PR review
+## Phase 2 — done pending PR review
+
+- `botpit.games.base`: `Game[State, Move]` contract, frozen pydantic state,
+  `IllegalMoveError`, `PlayerView`, `hand_view` hook; `cards.py` shared types
+  and deterministic `rng_for(state)`; `GAME_CATALOG` registry.
+- Four games, each with `rules.md` and scripted tests: Classic UNO (92 tests),
+  UNO Flip! (96), UNO Show 'em No Mercy (104), Hearts (46), all passing the
+  shared contract suite across their seat ranges; catalog round-trip tests.
+- Hearts proved the contract generalises: no change to base/registry needed
+  beyond one registry line.
+- Total suite: 458 tests, ~18 s.
+
+## Phase 2b — next: adopt the template
+
+Owner decision 2026-09-12: https://github.com/fastapi/full-stack-fastapi-template
+is the base. Plan (also in the session scratchpad): copy the template tree
+in (backend/, frontend/, compose files, workflows), port `botpit.*` modules
+to `backend/app/*` (games, events, logging, llm, middleware), fold our
+settings into `app/core/config.py`, replace our db layer with the template's
+SQLModel setup, wire the lifespan (logging, bus, LLM health) into
+`app/main.py`, add Redis to compose, keep React/TanStack frontend, rewrite
+deployment docs for Traefik. Python 3.14 (uv-managed) and Bun 1.4 verified
+on the dev box; the template builds and imports locally.
+
+## Phase 1 — done (PR #1 merged 2026-09-12)
 
 Delivered on `phase-1-scaffold`:
 - Research: `docs/local-model-setup.md`, `docs/deployment.md`.
