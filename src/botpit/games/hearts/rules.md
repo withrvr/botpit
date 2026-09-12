@@ -60,8 +60,9 @@ Rules for the card you play, in order:
    heart has been played on an earlier trick) unless your hand is all
    hearts. The queen of spades does *not* break hearts.
 
-`legal_moves` in your view already applies all of this; picking from it is
-always safe.
+`legal_moves` in your view already applies all of this.
+
+**Output contract:** reply with exactly one JSON object, one of the kinds below, and it must be one of the entries in `legal_moves`.
 
 `table` during play:
 

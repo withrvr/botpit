@@ -1,10 +1,8 @@
 # UNO Flip!
 
-Two to ten seats. Every card has two faces: a **light** face and a **dark**
-face. The game starts on the light side; every Flip card played turns the
-whole game over to the other side. You only ever see the face that is
-currently up, on every card, including your own hand. The first seat to empty
-its hand wins the round.
+Two to ten seats. Every card has a **light** face and a **dark** face. The
+game starts light; each Flip card turns the whole game over. You only see the
+face currently up, even on your own cards. First seat to empty its hand wins.
 
 ## The deck (112 double-faced cards)
 
@@ -16,17 +14,14 @@ Dark faces, per colour (pink, teal, orange, purple): two each of 1-9, two Draw
 Five (`draw5`), two Reverse (`reverse`), two Skip Everyone (`skip_all`), two Flip
 (`flip`); plus four Wild (`wild`) and four Wild Draw Colour (`wild_draw_colour`).
 
-Which light face sits on the back of which dark face is randomised per game
-(Mattel prints a fixed pairing; the number of each face per side is the same).
-You cannot know the hidden face of any card, not even your own.
+Which light face backs which dark face is randomised per game (Mattel prints
+a fixed pairing; the count of each face per side is identical).
 
 ## Matching
 
-On your turn play one card from your hand whose **active face** (the face for the
-current side) either matches the **active colour**, or has the same rank as
-the top of the discard pile, or is a wild face. If the active colour is `null`
-(a wild face is on top after a Flip and no colour was declared), any card
-matches.
+On your turn play one card whose **active face** matches the **active
+colour**, or the rank of the discard top, or is a wild face. If the active
+colour is `null` (wild face on top after a Flip), any card matches.
 
 If you have no playable card you must draw one card (`draw`). You may then
 play that card if it matches (`play` its index, which is always the last one in
@@ -34,30 +29,24 @@ your hand) or `pass`. You cannot draw while you hold a playable card.
 
 ## Light-side action cards
 
-- **Draw One** (`draw1`): the next player draws 1 and loses their turn.
-- **Skip** (`skip`): the next player loses their turn.
-- **Reverse** (`reverse`): play direction reverses. With two seats it acts as a
-  Skip: you play again.
+- **Draw One** (`draw1`): next player draws 1, loses their turn.
+- **Skip** (`skip`): next player loses their turn.
+- **Reverse** (`reverse`): direction reverses (two seats: you play again).
 - **Flip** (`flip`): see below.
-- **Wild** (`wild`): declare one of the light colours (red, yellow, green, blue).
-- **Wild Draw Two** (`wild_draw2`): declare a light colour; the next player
-  draws 2 and loses their turn. You are only supposed to play it when you hold
-  no card matching the active colour; the engine lets you bluff, but the
-  victim may challenge (see Challenges).
+- **Wild** (`wild`): declare a light colour (red, yellow, green, blue).
+- **Wild Draw Two** (`wild_draw2`): declare a light colour; next player draws
+  2, loses their turn. Meant only when you hold no card of the active colour;
+  bluffing is allowed but the victim may challenge (see Challenges).
 
 ## Dark-side action cards
 
-- **Draw Five** (`draw5`): the next player draws 5 and loses their turn.
-- **Skip Everyone** (`skip_all`): every other seat is skipped; you play again
-  immediately (with two seats it is simply another turn for you).
-- **Reverse** (`reverse`): as on the light side.
-- **Flip** (`flip`): see below.
-- **Wild** (`wild`): declare one of the dark colours (pink, teal, orange, purple).
-- **Wild Draw Colour** (`wild_draw_colour`): declare a dark colour; the next
-  player draws from the draw pile until they draw a card of that colour, then
-  loses their turn. Same legality and challenge rule as Wild Draw Two. If the
-  draw pile and the reshuffled discard pile run out before the colour shows,
-  the drawing stops.
+- **Draw Five** (`draw5`): next player draws 5, loses their turn.
+- **Skip Everyone** (`skip_all`): everyone else is skipped; you play again.
+- **Reverse**, **Flip**: as on the light side.
+- **Wild** (`wild`): declare a dark colour (pink, teal, orange, purple).
+- **Wild Draw Colour** (`wild_draw_colour`): declare a dark colour; next player
+  draws until they draw that colour, then loses their turn. Same legality and
+  challenge rule as Wild Draw Two. Drawing stops if the cards run out.
 
 ## Flip
 
@@ -77,20 +66,16 @@ declare colours of the new side.
 
 ## UNO
 
-When you play your second-to-last card, set `"called_uno": true` on that
-`play`. If you do not, the seat whose turn comes next may catch you with
-`challenge_uno` **before doing anything else**: you draw 2 cards, and the
-catcher then continues their turn normally (catching does not use up their
-turn). Once that seat plays, draws, passes, accepts or challenges a wild
-draw, the window is closed. `called_uno` is only accepted on a play that
-leaves you with exactly one card.
+Set `"called_uno": true` on the play that leaves you one card. If you forget,
+the next seat may `challenge_uno` **before doing anything else**: you draw 2
+and the catcher keeps their turn. Any other move by that seat closes the
+window. `called_uno` is rejected unless the play leaves exactly one card.
 
 ## Challenges (Wild Draw Two / Wild Draw Colour)
 
-After one of these is played, the targeted player must respond, with either
-`accept_wild_draw` (draw the penalty and lose the turn) or
-`challenge_wild_draw`. The engine checks the hand of the player who played the
-card against the colour that was active when they played it:
+The targeted player must respond with `accept_wild_draw` (take the penalty,
+lose the turn) or `challenge_wild_draw`. The engine checks whether the player
+held the colour that was active when they played the card:
 
 - Wild Draw Two, played illegally (they held a matching colour): they draw 2;
   the challenger keeps their turn and plays next with the declared colour.
@@ -100,28 +85,24 @@ card against the colour that was active when they played it:
 - Wild Draw Colour, legal: the challenger draws until the declared colour and
   then 2 more, and loses their turn.
 
-If the active colour was open (`null`) when the card was played, it was legal.
-If a Wild Draw card is the winning (last) card, the next player takes the
-penalty and the round ends; there is nothing to challenge.
+Open colour (`null`) at play time means legal. A winning wild draw card ends
+the round; the next player takes the penalty with no challenge.
 
 ## Start of the round
 
-Seven cards each, light side up. The first card of the draw pile starts the
-discard pile. If it is an action card it acts on seat 0: Draw One (seat 0
-draws 1 and is skipped), Skip (seat 0 is skipped), Reverse (direction becomes
--1 and the last seat plays first), Flip (the game flips before seat 0 acts and
-seat 0 matches the dark face), Wild (colour is open; seat 0 may play anything).
-A Wild Draw Two first card goes back into the pile, which is reshuffled.
+Seven cards each, light side up. The first draw-pile card starts the discard
+pile; an action card acts on seat 0 (Draw One: seat 0 draws 1 and is skipped;
+Skip; Reverse: last seat plays first; Flip: game flips before seat 0 acts;
+Wild: colour open). A Wild Draw Two first card is reshuffled back.
 
 ## Draw pile, end of round, scoring
 
-When the draw pile is empty the discard pile except its top card is shuffled
-into a new draw pile. If a player has no playable card and there is nothing
-left to draw, the round ends with nobody out; seats are ranked by hand points.
+An empty draw pile is refilled by shuffling the discard pile except its top.
+If a player has no playable card and nothing to draw, the round ends with no
+winner and seats rank by hand points.
 
-The round ends when a seat plays its last card (winner) or by the rule above.
-Points still in each hand are counted on the face that is showing when the
-round ends: numbers face value, Draw One 10, Draw Five / Reverse / Skip / Flip
+The round ends when a seat plays its last card. Hand points count the face
+showing at the end: numbers face value, Draw One 10, Draw Five / Reverse / Skip / Flip
 20, Skip Everyone 30, Wild 40, Wild Draw Two 50, Wild Draw Colour 60. Ranking:
 the winner first, then ascending hand points, ties by seat number. Lower is
 better for everyone but the winner.
@@ -134,12 +115,9 @@ hidden faces are unknown to everyone. `table` shows `side`, `discard_top`,
 `"colour:<colour>"` while a wild draw awaits your response, else `null`),
 `uno_pending` (a seat that can be caught), `draw_pile_count`,
 `discard_pile_count`, `winner`, and, right after you draw, `drawn_card`.
-`legal_moves` lists exactly what you may do now; pick one of them.
+`legal_moves` lists exactly what you may do now.
 
-(Engine note: because hands hold double-faced cards while views expose only
-the active face, the generic contract privacy check does not apply to this
-game; `tests/unit/games/test_uno_flip.py` carries an equivalent Flip-specific
-check instead.)
+**Output contract:** reply with exactly one JSON object, one of the kinds below, and it must be one of the entries in `legal_moves`.
 
 ## Moves (JSON)
 
@@ -165,16 +143,10 @@ Every move carries your `seat`. Indexes are 0-based positions in your `hand`.
 
 ## How to think
 
-1. Check `table.side` first: it decides which colours exist, what every face
-   means and how much a card costs you at the end.
+1. Check `table.side` first: it decides colours, faces and end-of-game costs.
 2. Match `active_colour` or the top rank; keep wilds for when you are stuck.
-3. A Flip is strongest when the light side is going badly for you and, since
-   nobody knows their hidden faces, it is a gamble for everyone; on the dark
-   side Draw Five, Skip Everyone and Wild Draw Colour punish hard, so try to
-   flip back to light when opponents are close to going out.
-4. Always set `called_uno` when going down to one card; catch opponents who
-   forget.
-5. Challenge a Wild Draw Two / Wild Draw Colour only if you believe the player
-   held the active colour; a failed challenge costs more than accepting.
-6. On the dark side, count points: a hand full of 20-60 point faces is
-   expensive if someone else goes out.
+3. Flip when the current side is going badly for you; dark-side cards punish
+   hard, so flip back to light when opponents are nearly out.
+4. Set `called_uno` when going down to one card; catch opponents who forget.
+5. Challenge a wild draw only if you believe the player held the active
+   colour; a failed challenge costs more than accepting.

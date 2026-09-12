@@ -79,8 +79,9 @@ by seat number.
 
 ## Move vocabulary
 
-Every move carries `"seat"` (your seat number). Copy a move from `legal_moves`
-verbatim when possible: it already contains the right `card` echo and colour.
+Every move carries `"seat"` (your seat number). Copy a move from `legal_moves` verbatim when possible: it already contains the right `card` echo and colour.
+
+**Output contract:** reply with exactly one JSON object, one of the kinds below, and it must be one of the entries in `legal_moves`.
 
 ```json
 {"kind": "play", "seat": 2, "card_index": 3, "declared_colour": null, "called_uno": false}

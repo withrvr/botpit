@@ -83,8 +83,9 @@ you one card.
 ## Moves
 
 Every move carries `"seat"` (your seat number) and `"kind"`. Card indexes refer
-to your `hand` list as shown to you (0-based). Your `legal_moves` list is exact:
-copy one of those.
+to your `hand` list as shown to you (0-based). Your `legal_moves` list is exact: copy one of those.
+
+**Output contract:** reply with exactly one JSON object, one of the kinds below, and it must be one of the entries in `legal_moves`.
 
 Play a card:
 
@@ -98,12 +99,16 @@ Play a card:
 * `declared_colour` (red/yellow/green/blue): required for a wild, forbidden otherwise.
 * `target_seat`: required when the card is a 7 (any other surviving seat), forbidden otherwise.
 * `called_uno`: `true` only when this play leaves you with one card.
+* `card` (optional): echo of the card you mean to play, as `legal_moves` shows it; the engine rejects the move if it does not match `card_index`.
 
 Draw (one card in phase `play`; the whole pending total in `draw_response`):
 
 ```json
 {"kind": "draw", "seat": 2}
+{"kind": "draw", "seat": 2, "count": 6}
 ```
+
+* `count` (optional, informational): how many cards this draw takes; `legal_moves` fills it in (1, or the pending total).
 
 Pass, only in phase `after_draw` (you drew and cannot or do not want to play it):
 
