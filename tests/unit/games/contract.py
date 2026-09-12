@@ -13,7 +13,7 @@ from botpit.games.base import GameState, IllegalMoveError, Move, PlayerView
 if TYPE_CHECKING:
     from botpit.games.base import AnyGame
 
-MAX_MOVES = 3000
+MAX_MOVES = 10000  # random UNO with 3-4 seats has been seen to run past 5000
 PLAYOUT_SEEDS = 25
 
 
