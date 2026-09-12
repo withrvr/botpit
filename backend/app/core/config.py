@@ -106,6 +106,23 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_GAMES: int = 4
     MAX_CONNECTIONS: int = 200
     MAX_VIEWERS_PER_ROOM: int = 20
+    # "count/seconds" per user; parsed to (count, seconds). Dev-generous.
+    RATE_LIMIT_ROOM_CREATE: Annotated[tuple[int, int], NoDecode] = (5, 60)
+    RATE_LIMIT_ROOM_JOIN: Annotated[tuple[int, int], NoDecode] = (20, 60)
+    RATE_LIMIT_CHAT: Annotated[tuple[int, int], NoDecode] = (10, 10)
+
+    @field_validator(
+        "RATE_LIMIT_ROOM_CREATE",
+        "RATE_LIMIT_ROOM_JOIN",
+        "RATE_LIMIT_CHAT",
+        mode="before",
+    )
+    @classmethod
+    def _parse_rate(cls, value: object) -> object:
+        if isinstance(value, str):
+            count, _, seconds = value.partition("/")
+            return (int(count), int(seconds))
+        return value
 
     # --- botpit: wide-event logging (docs/admin-and-observability.md) ------
     LOG_LEVEL: str = "INFO"

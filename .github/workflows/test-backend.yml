@@ -26,13 +26,16 @@ jobs:
         with:
           version: "latest-known"
       - run: docker compose down -v --remove-orphans
-      - run: docker compose up -d --wait db mailpit
+      - run: docker compose up -d --wait db mailpit redis
       - name: Migrate DB
         run: uv run bash scripts/prestart.sh
         working-directory: backend
       - name: Run tests
         run: uv run bash scripts/tests-start.sh "Coverage for ${{ github.sha }}"
         working-directory: backend
+        env:
+          # compose.override.yml publishes redis on 6380
+          REDIS_URL: redis://localhost:6380/0
       - run: docker compose down -v --remove-orphans
       - name: Store coverage files
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
