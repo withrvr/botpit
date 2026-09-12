@@ -34,3 +34,12 @@ extend-ignore-re = [
 
 [tool.typos.default.extend-identifiers]
 alls = "alls"
+
+# Root-level scripts/ and hooks/ share the backend's baseline rules so the
+# pre-commit ruff hook does not fall back to a user-level config.
+[tool.ruff]
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
+ignore = ["E501"]
