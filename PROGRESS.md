@@ -29,10 +29,10 @@ branch; only the phase branch opens a PR into `master`.
 | 1 | Scaffold, event schema, environments | done 2026-09-12 (PR #1) |
 | 2 | Game contract + UNO, Flip, No Mercy, Hearts | done pending PR |
 | 2b | Adopt full-stack-fastapi-template as base (owner decision 2026-09-12) | done 2026-09-12 (PR #3) |
-| 3 | Deterministic referee, mixed seats | done pending PR (branch phase-3-referee) |
-| 4 | Privacy gate, prompt builder, human redaction | done pending PR (same branch) |
-| 5 | Agent client, swappable backend | done pending PR (same branch) |
-| 6 | Auth, accounts, roles/permissions | |
+| 3 | Deterministic referee, mixed seats | done 2026-09-12 (PR #10) |
+| 4 | Privacy gate, prompt builder, human redaction | done 2026-09-12 (PR #10) |
+| 5 | Agent client, swappable backend | done 2026-09-12 (PR #10) |
+| 6 | Auth, accounts, roles/permissions | in progress (branch phase-6-auth, also carries the Redis parts of 7) |
 | 7 | Rooms, seats, capacity, join queue | |
 | 8 | First live mixed game (terminal + API) | |
 | 9 | Persistence and replay | |
@@ -56,7 +56,20 @@ branch; only the phase branch opens a PR into `master`.
   beyond one registry line.
 - Total suite: 458 tests, ~18 s.
 
-## Phase 3 — in progress (branch phase-3-referee, also carries Phases 4-5)
+## Phase 6 — in progress (branch phase-6-auth)
+
+- Task `authz`: roles/permissions tables + seed migration, `load_permissions`,
+  `require_permission`, roles admin routes, default `player` role on signup,
+  `/users/me/permissions`, DB-backed tests.
+- Task `rooms-infra` (Phase 7 pieces with no table dependency): Redis client,
+  Lua sliding-window rate limiter + FastAPI dependency, join codes, ZSET join
+  queue with offers/sweep, CI starts Redis.
+- Then on the same branch: nothing else; Phase 7 (rooms, runtime settings,
+  flags, room service, routes) branches after this merges.
+- Housekeeping: Dependabot opened PRs #4-#9 from the template's
+  `dependabot.yml`; left for the owner.
+
+## Phase 3 — done 2026-09-12 (PR #10, with Phases 4-5)
 
 - `backend/app/referee/`: `SeatSpec`, `SeatController`, `HumanController`,
   `PolicyController`, `ScriptedController`, `fallback_move`, `Referee`
