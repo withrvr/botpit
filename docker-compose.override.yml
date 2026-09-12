@@ -1,0 +1,13 @@
+# Dev-only additions, merged automatically by `docker compose`. Not copied to
+# servers, so the base file stays the production shape.
+services:
+  app:
+    volumes:
+      - ./src:/app/src:ro
+    command: ["uvicorn", "botpit.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+  postgres:
+    ports:
+      - "5432:5432"
+  redis:
+    ports:
+      - "6379:6379"
