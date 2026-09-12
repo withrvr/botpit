@@ -3,9 +3,10 @@ listing it in ``_GAMES``; nothing outside the package changes."""
 
 from __future__ import annotations
 
+from botpit.games import hearts
 from botpit.games.base import AnyGame, Game, GameState, IllegalMoveError, Move, PlayerView, Seat
 
-_GAMES: tuple[AnyGame, ...] = ()
+_GAMES: tuple[AnyGame, ...] = (hearts.GAME,)
 
 GAME_CATALOG: dict[str, AnyGame] = {g.slug: g for g in _GAMES}
 
