@@ -2,13 +2,13 @@
 
 ## Game module contract (Phase 2)
 
-Every game is a package under `src/botpit/games/<slug>/` exposing a `GAME`
-instance of `botpit.games.base.Game[State, Move]` and a `rules.md`. It is
-registered by one line in `botpit/games/__init__.py` (`_GAMES`). Nothing
+Every game is a package under `src/backend/app/games/<slug>/` exposing a `GAME`
+instance of `app.games.base.Game[State, Move]` and a `rules.md`. It is
+registered by one line in `backend/app/games/__init__.py` (`_GAMES`). Nothing
 else changes when a game is added: the referee, websocket layer and
 frontend only see the contract.
 
-### Types (`botpit/games/base.py`)
+### Types (`backend/app/games/base.py`)
 
 | Type | Role |
 |---|---|

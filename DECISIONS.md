@@ -149,13 +149,37 @@ correlation ids, tail sampling (always keep errors and slow, sample the
 rest). Prometheus `/metrics`, `/health`, `/health/llm`. Everything
 inspectable locally. Reference: https://loggingsucks.com/.
 
-## 15. Stack, RESOLVED 2026-09-12
+## 15. Stack, RESOLVED 2026-09-12 (amended same day)
 
-Python 3.12, uv, ruff, mypy strict, pytest + pytest-asyncio, FastAPI with
-native websockets, SQLAlchemy 2.0 async, Alembic, httpx, redis-py (Redis
-Streams event bus), pydantic-settings. Auth, RBAC, rate-limiting, feature
-flag and frontend libraries are chosen by research in their phases and
-recorded here when decided.
+**Owner decision 2026-09-12: the
+[full-stack-fastapi-template](https://github.com/fastapi/full-stack-fastapi-template)
+is the base; botpit is built on top of it, not from scratch.** The template
+tree is vendored as-is (backend/, frontend/, compose files, workflows,
+hooks, scripts, docs) and botpit modules live under `backend/app/`.
+
+Consequences, superseding earlier Phase 1 choices:
+
+- Python 3.14 (uv-managed), uv workspace at the repo root.
+- SQLModel with a sync engine and psycopg (template), not SQLAlchemy async;
+  DB work in async handlers goes through `run_in_threadpool`. Postgres is
+  the only database (dev via compose on host port 5433); the SQLite dual
+  dialect layer was dropped.
+- Auth: template's pyjwt + pwdlib (argon2) with its users/login routes;
+  Phase 6 adds roles/permissions on top of it.
+- Frontend: React 19, TanStack Router/Query, Tailwind 4, shadcn/ui, Vite,
+  Bun, generated OpenAPI client; built into `backend/app/frontend` and
+  served by FastAPI. (The SvelteKit pick in `docs/research/stack-choices.md`
+  is superseded.)
+- Reverse proxy: Traefik (template), not Caddy. Compose files:
+  `compose.yml`, `compose.override.yml` (dev), `compose.deploy.yml`.
+- Migrations run in `scripts/prestart.sh` before the server starts, not in
+  the app lifespan.
+- Kept from Phase 1: wide-event logging (`app.telemetry`), the event
+  schema and pluggable bus (`app.events`), the LLM health probe
+  (`app.llm`), the request middleware, and Redis as a compose service.
+- Environment selection: the template's single `.env` per box plus
+  `FASTAPI_ENV=development|staging|production`; botpit fields were added to
+  the template `Settings` in upper-case.
 
 ## Open decisions
 

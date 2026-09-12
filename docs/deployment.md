@@ -1,5 +1,12 @@
 # Deployment
 
+> **2026-09-12 update:** the project now sits on the full-stack-fastapi-template.
+> Mechanics (Traefik, `compose.deploy.yml`, GitHub Actions deploy workflows,
+> secrets) follow the template's own `deployment.md` and
+> `deployment-docker-compose.md` at the repo root. Sections 1-3 below (host
+> comparison and the Hetzner/llama-server decision) still stand; sections 4-5
+> describe the pre-template Caddy/compose layout and are superseded.
+
 Hosting research for Phase 14/15, done 2026-09-12 before Phase 1 so the
 Docker/compose shape in Phase 1 targets a real box. Deployment mechanics
 (workflows, secrets, smoke-test checklist) get filled in during Phase 14/15.
