@@ -11,6 +11,9 @@ from sqlalchemy import text
 from botpit.config import get_settings
 from botpit.db import get_engine
 from botpit.llm import LLMHealth, probe_health
+from botpit.logging import get_logger
+
+log = get_logger("health")
 
 router = APIRouter(tags=["health"])
 
@@ -28,7 +31,8 @@ async def _db_ok() -> bool:
     try:
         async with get_engine().connect() as conn:
             await conn.execute(text("SELECT 1"))
-    except Exception:  # any failure means unhealthy
+    except Exception:  # any failure means unhealthy; the reason goes to the log
+        log.warning("database health check failed", exc_info=True)
         return False
     return True
 

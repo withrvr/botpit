@@ -6,6 +6,7 @@ from asgi_lifespan import LifespanManager
 
 from botpit.app import create_app
 from botpit.config import reset_settings_cache
+from botpit.db import session as session_module
 from botpit.llm import LLMHealthError
 
 
@@ -58,6 +59,9 @@ async def test_startup_fails_when_llm_required(monkeypatch: pytest.MonkeyPatch) 
     with pytest.raises(LLMHealthError, match="unreachable"):
         async with LifespanManager(app):
             pass
+    # Startup failure must not leak the bus or the engine.
+    assert await app.state.bus.ping() is False
+    assert session_module._engine is None
 
 
 async def test_docs_hidden_unless_debug(monkeypatch: pytest.MonkeyPatch) -> None:

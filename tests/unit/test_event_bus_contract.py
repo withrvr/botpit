@@ -65,10 +65,15 @@ async def test_memory_maxlen_is_exact() -> None:
     assert [e.seq for e in await bus.history("r")] == [4, 5]
 
 
-def test_factory_picks_by_settings(settings: Settings) -> None:
-    assert isinstance(create_event_bus(settings), InMemoryEventBus)
-    redis_settings = settings.model_copy(update={"event_bus": "redis"})
-    assert isinstance(create_event_bus(redis_settings), RedisStreamsEventBus)
+async def test_factory_picks_by_settings(settings: Settings) -> None:
+    memory = create_event_bus(settings)
+    redis_bus = create_event_bus(settings.model_copy(update={"event_bus": "redis"}))
+    try:
+        assert isinstance(memory, InMemoryEventBus)
+        assert isinstance(redis_bus, RedisStreamsEventBus)
+    finally:
+        await memory.close()
+        await redis_bus.close()
 
 
 async def test_concurrent_publishers_keep_order() -> None:

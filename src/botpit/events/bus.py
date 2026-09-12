@@ -86,6 +86,7 @@ class InMemoryEventBus:
         async with self._cond:
             self._cond.notify_all()
 
+    # ponytail: linear scan of the room deque per wake; index by seq if maxlen grows large.
     def _after(self, room_id: str, cursor: int) -> list[EventEnvelope]:
         return [e for e in self._rooms[room_id] if (e.seq or 0) > cursor]
 

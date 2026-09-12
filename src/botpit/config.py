@@ -12,10 +12,12 @@ import os
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+_DEV_SECRET = "dev-only-change-me"  # noqa: S105 - placeholder, rejected in production
 
 
 class Env(StrEnum):
@@ -41,12 +43,17 @@ def _env_file() -> tuple[Path, ...]:
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=_env_file(),
         env_file_encoding="utf-8",
         env_prefix="",
         extra="ignore",
         case_sensitive=False,
     )
+
+    def __init__(self, **values: Any) -> None:
+        # Resolve the env file per instantiation, not at import time, so a
+        # BOTPIT_ENV change (tests, reset_settings_cache) picks the right file.
+        values.setdefault("_env_file", _env_file())
+        super().__init__(**values)
 
     # Identity
     env: Env = Field(default_factory=_env_name, alias="BOTPIT_ENV")
@@ -84,7 +91,7 @@ class Settings(BaseSettings):
     llm_health_required_at_startup: bool = True
 
     # Auth (Phase 6 consumes these; declared now so every env file is complete)
-    jwt_secret: SecretStr = SecretStr("dev-only-change-me")
+    jwt_secret: SecretStr = SecretStr(_DEV_SECRET)
     jwt_algorithm: str = "HS256"
     jwt_access_ttl_seconds: int = 60 * 60 * 12
 
@@ -122,6 +129,13 @@ class Settings(BaseSettings):
             msg = "log_sample_rate must be between 0 and 1"
             raise ValueError(msg)
         return value
+
+    @model_validator(mode="after")
+    def _no_placeholder_secret_in_production(self) -> Settings:
+        if self.env is Env.PRODUCTION and self.jwt_secret.get_secret_value() == _DEV_SECRET:
+            msg = "JWT_SECRET must be set in production"
+            raise ValueError(msg)
+        return self
 
     @property
     def is_sqlite(self) -> bool:

@@ -57,7 +57,11 @@ class WideEvent:
         return self
 
     def add(self, field: str, value: Any) -> None:
-        self.fields.setdefault(field, []).append(value)
+        existing = self.fields.setdefault(field, [])
+        if not isinstance(existing, list):
+            msg = f"wide event field {field!r} is not a list"
+            raise TypeError(msg)
+        existing.append(value)
 
     def incr(self, field: str, n: int = 1) -> None:
         self.fields[field] = self.fields.get(field, 0) + n

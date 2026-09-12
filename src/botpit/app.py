@@ -32,13 +32,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings)
     log.info("starting %s %s env=%s", settings.app_name, __version__, settings.env)
-    await upgrade_to_head()
-    app.state.bus = create_event_bus(settings)
-    app.state.llm_health = await require_healthy_or_raise(settings)
+    app.state.bus = None
     try:
+        await upgrade_to_head()
+        app.state.bus = create_event_bus(settings)
+        app.state.llm_health = await require_healthy_or_raise(settings)
         yield
     finally:
-        await app.state.bus.close()
+        if app.state.bus is not None:
+            await app.state.bus.close()
         await dispose_engine()
         log.info("stopped")
 

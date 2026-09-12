@@ -23,6 +23,7 @@ def test_csv_lists_parse(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_env_selects_name(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BOTPIT_ENV", "production")
+    monkeypatch.setenv("JWT_SECRET", "real-secret")
     assert Settings().env is Env.PRODUCTION
 
 
@@ -43,3 +44,23 @@ def test_get_settings_cached(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_secret_not_in_repr(settings: Settings) -> None:
     assert "dev-only" not in repr(settings)
+
+
+def test_env_file_resolved_per_instance(monkeypatch: pytest.MonkeyPatch, tmp_path: object) -> None:
+    import pathlib
+
+    root = pathlib.Path(str(tmp_path))
+    (root / ".env.staging").write_text("PORT=4242\n")
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("BOTPIT_ENV", "staging")
+    assert Settings().port == 4242
+    monkeypatch.setenv("BOTPIT_ENV", "dev")
+    assert Settings().port == 8000
+
+
+def test_production_rejects_placeholder_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOTPIT_ENV", "production")
+    with pytest.raises(ValueError, match="JWT_SECRET"):
+        Settings()
+    monkeypatch.setenv("JWT_SECRET", "real-secret")
+    assert Settings().env is Env.PRODUCTION

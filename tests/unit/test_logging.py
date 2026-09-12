@@ -172,3 +172,11 @@ def test_get_logger_prefix() -> None:
     assert get_logger("game").name == "botpit.game"
     assert get_logger("botpit.game").name == "botpit.game"
     assert get_logger("botpit").name == "botpit"
+
+
+def test_add_rejects_non_list_field() -> None:
+    from botpit.logging import wide_event
+
+    ev = wide_event("t").set(x=1)
+    with pytest.raises(TypeError, match="not a list"):
+        ev.add("x", 2)

@@ -99,10 +99,11 @@ class RedisStreamsEventBus:
     async def history(
         self, room_id: str, since: str | None = None, limit: int = 1000
     ) -> list[EventEnvelope]:
-        start = "-" if since in (None, "0") else since
+        replay_all = since is None or since in ("0", "0-0")
+        start = "-" if since is None or replay_all else since
         key = self.stream_key(room_id)
         entries: Any = await self._redis.xrange(key, min=start, max="+", count=limit + 1)
-        events = [_decode(i, f) for i, f in entries if _str(i) != since]
+        events = [_decode(i, f) for i, f in entries if replay_all or _str(i) != since]
         return events[:limit]
 
     async def ping(self) -> bool:
