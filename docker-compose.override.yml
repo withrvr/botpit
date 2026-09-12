@@ -1,0 +1,27 @@
+# Dev-only additions, merged automatically by `docker compose`. Not copied to
+# servers, so the base file stays the production shape.
+services:
+  # Host networking so the container reaches Ollama on the Windows host at
+  # localhost:11434 (Ollama binds 127.0.0.1 only; host.docker.internal lands on
+  # the WSL gateway where nothing listens). Ports are therefore not published;
+  # the app is on localhost:8000 directly and talks to the published
+  # postgres/redis ports on localhost.
+  app:
+    network_mode: host
+    environment:
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql+asyncpg://botpit:botpit@localhost:${BOTPIT_PG_PORT:-5433}/botpit
+      REDIS_URL: redis://localhost:${BOTPIT_REDIS_PORT:-6380}/0
+      EVENT_BUS: redis
+      LLM_BASE_URL: http://localhost:11434
+    volumes:
+      - ./src:/app/src:ro
+    command: ["uvicorn", "botpit.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+  # Host ports default to 5433/6380 so a natively installed Postgres/Redis on
+  # the WSL box does not collide. Override with BOTPIT_PG_PORT / BOTPIT_REDIS_PORT.
+  postgres:
+    ports:
+      - "${BOTPIT_PG_PORT:-5433}:5432"
+  redis:
+    ports:
+      - "${BOTPIT_REDIS_PORT:-6380}:6379"

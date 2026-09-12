@@ -1,0 +1,12 @@
+# BOTPIT_DOMAIN unset -> localhost (plain HTTP, no ACME). Set it on a server
+# and Caddy provisions TLS automatically.
+{$BOTPIT_DOMAIN:localhost} {
+	encode gzip
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+	# Websocket upgrades pass through reverse_proxy by default; nothing to add.
+	reverse_proxy app:8000
+}

@@ -74,3 +74,52 @@ GPU pod for real play sessions.** See `docs/local-model-setup.md` §3.
   SSH key, `.env.<env>` contents, and the GHCR token. Nothing in the repo.
 - Domains: `staging.<domain>` and `<domain>`, Caddy auto-TLS. The domain
   itself is an external blocker the owner provides before Phase 15.
+
+## 5. Local containers
+
+Phase 1 ships the compose stack that staging and production reuse. Files:
+`Dockerfile`, `docker-compose.yml` (production shape),
+`docker-compose.override.yml` (dev extras, merged automatically), `Caddyfile`,
+`Makefile`, `scripts/wait-for-services.sh`.
+
+Services in `docker-compose.yml`:
+
+| Service | Image | Always on | Notes |
+|---|---|---|---|
+| `app` | built from `Dockerfile` | yes | uvicorn on 8000, non-root, stdlib healthcheck on `/health`. `env_file: .env.${BOTPIT_ENV:-dev}`; `FORWARDED_ALLOW_IPS=*` so client IPs behind Caddy are real. Not published; Caddy fronts it. Waits for postgres and redis to be healthy. |
+| `postgres` | `postgres:17-alpine` | yes | user/password/db `botpit`, volume `pgdata`. |
+| `redis` | `redis:8-alpine` | yes | AOF on, volume `redisdata`. |
+| `llm` | `ghcr.io/ggml-org/llama.cpp:server` | profile `llm` | serves `./models/${LLM_GGUF:-qwen3-4b.Q4_K_M.gguf}` on 8080 (flags from `local-model-setup.md` §3.4). |
+| `caddy` | `caddy:2-alpine` | profile `proxy` | 80/443, `Caddyfile` bind-mounted, volumes `caddy_data` (certs) and `caddy_config`. Site is `{$BOTPIT_DOMAIN:localhost}`. |
+
+Dev flow:
+
+- `make up` starts postgres and redis (host ports 5433/6380 by default, to dodge native services; published by the
+  override file) and blocks until both are healthy; then `make dev` runs
+  uvicorn natively against them, or `make up-all` runs the app in compose
+  too. In compose the override bind-mounts `./src:/app/src:ro` and adds
+  `--reload`, so edits are picked up without a rebuild.
+- Ollama stays on the Windows host and binds 127.0.0.1 only, so the dev
+  override runs the app container with `network_mode: host`: it reaches
+  Ollama at `localhost:11434`, the published Postgres/Redis ports at
+  `localhost:5433`/`6380`, and serves on `localhost:8000` itself. The
+  override also sets `EVENT_BUS=redis` so the Redis bus path is exercised
+  locally every time the stack is up.
+- Migrations run in the app lifespan. On Postgres they take
+  `pg_advisory_lock` first, so several uvicorn workers starting together
+  apply them once.
+- `make llm-up` starts the `llm` profile to exercise the `openai_compat`
+  adapter locally; point the app at it with `LLM_PROVIDER=openai_compat
+  LLM_BASE_URL=http://llm:8080/v1`. Model files live in `./models`
+  (gitignored).
+- Named volumes `pgdata`, `redisdata`, `caddy_data`, `caddy_config` survive
+  `make down`; `docker compose down -v` wipes them.
+
+Server flow (Phase 14/15): copy only the base file, `Caddyfile` and the
+environment file. `docker compose --profile llm --profile proxy up -d` with
+`env_file` pointing at `.env.staging` / `.env.production` and `BOTPIT_DOMAIN`
+set; Caddy provisions TLS and proxies to `app:8000` (websockets pass
+through). No override file on the server means no published database ports,
+no bind-mounted source, no `--reload`. `BOTPIT_ENV=staging` (or
+`production`) in the shell selects the env file; nothing in the compose
+file is edited on the server.

@@ -16,7 +16,8 @@ htmlcov/
 # Data
 *.db
 *.sqlite*
-data/
+data/*
+!data/.gitkeep
 models/
 # Frontend
 node_modules/
