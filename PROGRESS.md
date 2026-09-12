@@ -81,8 +81,11 @@ branch; only the phase branch opens a PR into `master`.
   `OpenAICompatAdapter`, `ModelRegistry` (+ `LLM_MODEL_OVERRIDES`),
   `FakeLLMClient`, `AgentController` (repair loop, reasoning event, chat
   call), live tests for a raw completion and a full agent turn per model
-  (`-m ollama`). Live latencies measured 4.5-9.3 s per cold call on the 6 GB
-  card, mostly model swap.
+  (`-m ollama`). Live agent turn per model on the 6 GB card, cold:
+  gemma3:4b 10 s, llama3.1:8b 14 s, qwen3:4b 8 s (thinking off),
+  phi4-mini 8 s; all four chose a legal move, gemma needed the
+  discriminator-required schema fix, qwen needed the echo-field-tolerant
+  legality check.
 
 ## Phase 2b — done 2026-09-12 (PR #3): template adopted
 

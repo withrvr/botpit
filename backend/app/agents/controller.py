@@ -130,8 +130,11 @@ class AgentController:
                 last_error = f"move.seat must be {self.seat}"
                 continue
             normalised: dict[str, Any] = parsed.model_dump(mode="json")
-            if view.legal_moves and normalised not in view.legal_moves:
+            if view.legal_moves and not any(
+                _compatible(normalised, legal) for legal in view.legal_moves
+            ):
                 # Schema-valid but not playable now: the view already lists what is.
+                # The referee stays the authority; this saves a round trip there.
                 last_error = (
                     f"{self.game.describe_move(parsed)} is not one of legal_moves; "
                     "copy one of them exactly"
@@ -189,6 +192,16 @@ class AgentController:
 
     async def _publish(self, payload: Any, visibility: Any) -> None:
         await self.bus.publish(make_event(self.room_id, payload, visibility))
+
+
+def _compatible(candidate: dict[str, Any], legal: dict[str, Any]) -> bool:
+    """Equal on every field both sides set; ``None`` (omitted echo fields) matches."""
+    return all(
+        candidate.get(k) is None
+        or legal.get(k) is None
+        or candidate.get(k) == legal.get(k)
+        for k in candidate.keys() | legal.keys()
+    )
 
 
 def _parse_answer(text: str) -> tuple[str, dict[str, Any] | None]:

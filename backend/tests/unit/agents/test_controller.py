@@ -261,3 +261,23 @@ async def test_parseable_but_not_legal_move_is_repaired_from_the_view() -> None:
     )
     assert await agent.decide(view, _ctx(seat)) == legal
     assert "not one of legal_moves" in client.requests[1].messages[-1].content
+
+
+async def test_omitted_echo_fields_still_count_as_legal() -> None:
+    game = get_game("uno_classic")
+    state = game.new_game(42, 2)
+    seat = game.current_seat(state)
+    assert seat is not None
+    view = game.player_view(state, seat)
+    legal = view.legal_moves[0]
+    bare = {k: v for k, v in legal.items() if k != "card"}  # models often skip the echo
+    client = FakeLLMClient([json.dumps({"reasoning": "r", "move": bare})])
+    agent = AgentController(
+        game, client, "fake", get_persona("steady"), InMemoryEventBus(), "r", seat
+    )
+    move = await agent.decide(view, _ctx(seat))
+    assert (
+        game.parse_move(move) == game.parse_move(legal)
+        or move["card_index"] == legal["card_index"]
+    )
+    assert len(client.requests) == 1

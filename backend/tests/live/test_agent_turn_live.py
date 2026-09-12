@@ -12,6 +12,7 @@ import time
 import pytest
 
 from app.agents import AgentController, get_persona
+from app.agents.controller import _compatible
 from app.core.config import settings
 from app.events import InMemoryEventBus
 from app.games import get_game
@@ -66,11 +67,13 @@ async def test_one_real_turn(registry: ModelRegistry, model: str) -> None:
         pytest.fail(f"{model}: {exc}")
     elapsed = time.perf_counter() - started
     parsed = game.parse_move(move)
-    legal = game.legal_moves(state, seat)
+    legal = [m.model_dump(mode="json") for m in game.legal_moves(state, seat)]
+    is_legal = any(_compatible(parsed.model_dump(mode="json"), m) for m in legal)
     print(
-        f"\n{model}: {elapsed:.1f}s, legal={parsed in legal}, move={game.describe_move(parsed)}"
+        f"\n{model}: {elapsed:.1f}s, legal={is_legal}, move={game.describe_move(parsed)}"
     )
-    assert parsed in legal, f"{model} chose an illegal move: {move}"
+    assert is_legal, f"{model} chose an illegal move: {move}"
+    assert game.apply(state, parsed)  # the referee's real check
     reasoning = [
         e for e in await bus.history("live", since="0") if e.type == "agent.reasoning"
     ]
