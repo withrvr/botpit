@@ -73,7 +73,6 @@ services:
       # Ollama on the Windows host binds 127.0.0.1 only, which host.docker.internal
       # cannot reach from WSL. For in-compose dev with AI seats run the backend
       # natively (`fastapi dev` from backend/) or set OLLAMA_HOST=0.0.0.0 on Windows.
-      LLM_HEALTH_REQUIRED_AT_STARTUP: "false"
       LOG_FORMAT: console
       SMTP_HOST: "mailpit"
       SMTP_PORT: "1025"

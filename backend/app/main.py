@@ -1,3 +1,4 @@
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         app.state.bus = create_event_bus(settings)
         app.state.llm_health = await require_healthy_or_raise(settings)
+        app.state.llm_health_at = time.monotonic()
         yield
     finally:
         if app.state.bus is not None:

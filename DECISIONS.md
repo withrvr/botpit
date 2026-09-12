@@ -26,8 +26,10 @@ mode) and all-human.
   `http://localhost:11434` via mirrored networking; `host.docker.internal`
   from inside compose). Never hardcoded.
 - A startup health check probes the LLM backend and confirms every model in
-  `LLM_MODELS` is present before any game can start
-  (`LLM_HEALTH_REQUIRED_AT_STARTUP`).
+  `LLM_MODELS` is present. Refusing to start the whole API on failure is
+  opt-in (`LLM_HEALTH_REQUIRED_AT_STARTUP`, default false since 2026-09-12):
+  the API and human-only tables keep serving, and rooms refuse to seat an AI
+  player while `/api/v1/health/llm` (superuser-only) is degraded.
 - **Owner amendment 2026-09-12:** no new models get pulled. The dev model set
   is exactly what is installed on the Windows host: `gemma3:4b`,
   `llama3.1:8b`, `qwen3:4b`, `phi4-mini:latest` (all Q4_K_M).

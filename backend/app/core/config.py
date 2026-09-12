@@ -87,7 +87,10 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: float = 120.0
     LLM_KEEP_ALIVE: str = "30m"
     LLM_NUM_CTX: int = 4096
-    LLM_HEALTH_REQUIRED_AT_STARTUP: bool = True
+    # Opt-in: when true the API refuses to start without a healthy LLM backend.
+    # Off by default so CI, tests and a clone without Ollama still serve; rooms
+    # refuse to seat an AI player while /health/llm is degraded (Phase 7).
+    LLM_HEALTH_REQUIRED_AT_STARTUP: bool = False
 
     @field_validator("LLM_MODELS", mode="before")
     @classmethod

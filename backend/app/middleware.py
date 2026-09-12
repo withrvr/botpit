@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.core.config import settings
 from app.telemetry import wide_event
 
 if TYPE_CHECKING:
@@ -21,7 +22,12 @@ if TYPE_CHECKING:
 
 REQUEST_ID_HEADER = "x-request-id"
 SKIP_PATHS = frozenset(
-    {"/api/v1/health/", "/api/v1/health/llm", "/api/v1/utils/health-check/", "/metrics"}
+    {
+        f"{settings.API_V1_STR}/health/",
+        f"{settings.API_V1_STR}/health/llm",
+        f"{settings.API_V1_STR}/utils/health-check/",
+        "/metrics",
+    }
 )
 
 

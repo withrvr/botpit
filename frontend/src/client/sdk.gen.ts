@@ -382,6 +382,7 @@ export class HealthService {
     public static healthLlm<ThrowOnError extends boolean = true>(options?: Options<healthHealthLlmData, ThrowOnError>) {
         return (options?.client ?? client).get<healthHealthLlmResponses, unknown, ThrowOnError>({
             responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
             url: '/api/v1/health/llm',
             ...options
         });

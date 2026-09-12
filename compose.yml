@@ -82,7 +82,7 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama_native}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434}
       LLM_MODELS: ${LLM_MODELS:-gemma3:4b,llama3.1:8b,qwen3:4b,phi4-mini:latest}
-      LLM_HEALTH_REQUIRED_AT_STARTUP: ${LLM_HEALTH_REQUIRED_AT_STARTUP:-true}
+      LLM_HEALTH_REQUIRED_AT_STARTUP: ${LLM_HEALTH_REQUIRED_AT_STARTUP:-false}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       # Only Traefik reaches the backend, so trusting X-Forwarded-For is safe.
       FORWARDED_ALLOW_IPS: "*"
