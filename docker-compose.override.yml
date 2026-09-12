@@ -5,9 +5,11 @@ services:
     volumes:
       - ./src:/app/src:ro
     command: ["uvicorn", "botpit.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+  # Host ports default to 5433/6380 so a natively installed Postgres/Redis on
+  # the WSL box does not collide. Override with BOTPIT_PG_PORT / BOTPIT_REDIS_PORT.
   postgres:
     ports:
-      - "5432:5432"
+      - "${BOTPIT_PG_PORT:-5433}:5432"
   redis:
     ports:
-      - "6379:6379"
+      - "${BOTPIT_REDIS_PORT:-6380}:6379"

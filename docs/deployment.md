@@ -94,7 +94,7 @@ Services in `docker-compose.yml`:
 
 Dev flow:
 
-- `make up` starts postgres and redis (ports 5432/6379 published by the
+- `make up` starts postgres and redis (host ports 5433/6380 by default, to dodge native services; published by the
   override file) and blocks until both are healthy; then `make dev` runs
   uvicorn natively against them, or `make up-all` runs the app in compose
   too. In compose the override bind-mounts `./src:/app/src:ro` and adds
