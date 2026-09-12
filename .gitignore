@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage*
+# Env and secrets
+.env
+.env.staging
+.env.production
+*.local
+# Data
+*.db
+*.sqlite*
+data/
+models/
+# Frontend
+node_modules/
+dist/
+# OS/IDE
+.DS_Store
+.idea/
+.vscode/
+# rtk tee logs
+*.log
