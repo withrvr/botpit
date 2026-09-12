@@ -1,6 +1,12 @@
 import random
 
-from app.rooms.codes import ALPHABET, is_valid_code, new_join_code, normalise_code
+from app.rooms.codes import (
+    ALPHABET,
+    LENGTH,
+    is_valid_code,
+    new_join_code,
+    normalise_code,
+)
 
 
 def test_alphabet_excludes_ambiguous_letters() -> None:
@@ -10,7 +16,7 @@ def test_alphabet_excludes_ambiguous_letters() -> None:
 
 def test_new_code_shape() -> None:
     code = new_join_code()
-    assert len(code) == 6
+    assert len(code) == LENGTH
     assert is_valid_code(code)
 
 

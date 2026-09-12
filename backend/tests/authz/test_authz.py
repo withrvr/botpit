@@ -204,6 +204,19 @@ def _twice(perms: Any = Depends(current_permissions)) -> dict[str, int]:
     return {"n": len(perms)}
 
 
+@_router.get(
+    "/rooms_raw/{room_id}/stop",
+    dependencies=[
+        Depends(require_permission(P.ROOM_FORCE_STOP, room_id_param="room_id"))
+    ],
+)
+def _stop_raw(room_id: str) -> dict[str, str]:
+    # room_id kept as str (not uuid.UUID) so a malformed value reaches
+    # require_permission's own path-param parsing untouched by FastAPI's
+    # own coercion, exercising the 422 branch directly.
+    return {"room_id": room_id}
+
+
 app.include_router(_router, prefix=API)
 
 
@@ -222,6 +235,14 @@ def test_require_permission_room_param(
         == 403
     )
     revoke_role(db, user.id, "moderator", room)
+
+
+def test_require_permission_malformed_room_id_is_422(
+    client: TestClient, normal_user_token_headers: dict[str, str]
+) -> None:
+    h = normal_user_token_headers
+    r = client.get(f"{API}/_authz_test/rooms_raw/not-a-uuid/stop", headers=h)
+    assert r.status_code == 422
 
 
 def test_permissions_cached_per_request(

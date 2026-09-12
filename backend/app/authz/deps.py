@@ -42,7 +42,10 @@ def require_permission(
     def dependency(request: Request, session: SessionDep, user: CurrentUser) -> User:
         room_id: uuid.UUID | None = None
         if room_id_param is not None:
-            room_id = uuid.UUID(str(request.path_params[room_id_param]))
+            try:
+                room_id = uuid.UUID(str(request.path_params[room_id_param]))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="invalid room id") from exc
         if name not in current_permissions(request, session, user, room_id):
             raise HTTPException(status_code=403, detail=f"missing permission: {name}")
         return user

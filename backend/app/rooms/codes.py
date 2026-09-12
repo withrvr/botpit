@@ -6,7 +6,7 @@ import secrets
 from typing import Protocol
 
 ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-LENGTH = 6
+LENGTH = 8  # 8 chars over a 32-symbol alphabet is ~40 bits: resists guessing a private room's code
 _AMBIGUOUS = str.maketrans({"I": "1", "L": "1", "O": "0", "-": "", " ": ""})
 
 
