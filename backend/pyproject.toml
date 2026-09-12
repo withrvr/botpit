@@ -84,7 +84,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S", "PT011", "ARG001", "ASYNC110"]
+"tests/**" = ["S", "PT011", "ARG001", "ASYNC110", "T201"]
 "app/alembic/**" = ["I001", "E501"]
 
 [tool.ruff.lint.flake8-type-checking]

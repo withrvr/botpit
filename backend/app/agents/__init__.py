@@ -4,6 +4,7 @@ Everything here reads ``PlayerView`` only (DECISIONS.md §9). Phase 5 adds the
 client adapters and the turn loop.
 """
 
+from app.agents.controller import AgentController
 from app.agents.persona import PERSONAS, Persona, get_persona
 from app.agents.prompt import (
     PROMPT_TOKEN_BUDGET,
@@ -16,6 +17,7 @@ from app.agents.prompt import (
 __all__ = [
     "PERSONAS",
     "PROMPT_TOKEN_BUDGET",
+    "AgentController",
     "Persona",
     "PromptBundle",
     "build_chat_prompt",

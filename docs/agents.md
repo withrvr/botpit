@@ -134,3 +134,27 @@ AgentController tests.
 **Live check.** `uv run pytest -m ollama tests/live` makes one real
 `/api/chat` call per configured model with a tiny JSON schema (deselected by
 default).
+
+## AgentController (Phase 5)
+
+`app.agents.controller.AgentController` is the LLM-backed `SeatController`.
+
+- **Call 1** (`decide`): `build_move_prompt` -> `LLMClient.complete` with the
+  wrapped `{reasoning, move}` JSON schema -> parse. `reasoning` (plus any
+  model "thinking" the adapter surfaced) is published as `agent.reasoning`
+  with privileged visibility before the move is returned, so the focus view
+  shows it before the move lands (DECISIONS §10). A reply that is not JSON
+  or whose `move` fails `parse_move` is repaired: the error is fed back as
+  `last_error` up to `max_repairs` times, then `ControllerError` lets the
+  referee play `fallback_move`. `LLMError`s are retried by the client
+  helper and then surface the same way.
+- **Call 2** (`say`): after the referee applied the move it calls
+  `build_chat_prompt` and publishes a non-empty `say` as `chat.message`
+  (public). Failures are swallowed: chat never affects the game.
+- `hear(messages)` receives other seats' chat from the referee's fan-out;
+  the last 20 lines go into the next prompts.
+- Every call is recorded on the current wide event under `llm.calls`
+  (model, latency, tokens, ok/error, repairs); Phase 13 turns these into
+  Prometheus series.
+- `tests/live/test_agent_turn_live.py` (`-m ollama`) plays one real turn
+  per configured model against the Windows Ollama.

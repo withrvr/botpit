@@ -29,9 +29,9 @@ branch; only the phase branch opens a PR into `master`.
 | 1 | Scaffold, event schema, environments | done 2026-09-12 (PR #1) |
 | 2 | Game contract + UNO, Flip, No Mercy, Hearts | done pending PR |
 | 2b | Adopt full-stack-fastapi-template as base (owner decision 2026-09-12) | done 2026-09-12 (PR #3) |
-| 3 | Deterministic referee, mixed seats | in progress (with 4 and 5 on one branch) |
-| 4 | Privacy gate, prompt builder, human redaction | |
-| 5 | Agent client, swappable backend | |
+| 3 | Deterministic referee, mixed seats | done pending PR (branch phase-3-referee) |
+| 4 | Privacy gate, prompt builder, human redaction | done pending PR (same branch) |
+| 5 | Agent client, swappable backend | done pending PR (same branch) |
 | 6 | Auth, accounts, roles/permissions | |
 | 7 | Rooms, seats, capacity, join queue | |
 | 8 | First live mixed game (terminal + API) | |
@@ -69,10 +69,20 @@ branch; only the phase branch opens a PR into `master`.
 - Event schema gained `game.move_rejected`, `game.turn_timed_out`,
   `game.view_updated`; `game.started`/`turn_started`/`move_applied`/
   `finished` carry more fields.
-- Next on this branch: Phase 4 (move JSON schema, persona, prompt builder,
-  human view payload, privacy fuzz suite) and Phase 5 (LLM client with
-  Ollama-native and OpenAI-compatible adapters, registry, fake client,
-  AgentController, live Ollama smoke test).
+- Table-talk hooks: the referee calls an optional `say` after each move
+  and fans the line out to other controllers' `hear`.
+- Phase 4 (same branch): `app.games.move_schema` (self-contained JSON
+  schema per game, `move_adapter` on the contract), `app.agents.persona`
+  (6 built-ins), `app.agents.prompt` (two-call prompts, 3500-token budget,
+  PlayerView-only by construction), `app.api.views.view_payload`,
+  `tests/security/` fuzz suites for prompt and event-stream privacy.
+- Phase 5 (same branch): `app.llm.client` (protocol, errors, retries,
+  think-tag stripping, metrics hook), `OllamaNativeAdapter`,
+  `OpenAICompatAdapter`, `ModelRegistry` (+ `LLM_MODEL_OVERRIDES`),
+  `FakeLLMClient`, `AgentController` (repair loop, reasoning event, chat
+  call), live tests for a raw completion and a full agent turn per model
+  (`-m ollama`). Live latencies measured 4.5-9.3 s per cold call on the 6 GB
+  card, mostly model swap.
 
 ## Phase 2b — done 2026-09-12 (PR #3): template adopted
 
