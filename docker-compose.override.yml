@@ -8,11 +8,11 @@ services:
   # postgres/redis ports on localhost.
   app:
     network_mode: host
-    ports: !reset []
-    extra_hosts: !reset []
     environment:
+      HOST: 0.0.0.0
       DATABASE_URL: postgresql+asyncpg://botpit:botpit@localhost:${BOTPIT_PG_PORT:-5433}/botpit
       REDIS_URL: redis://localhost:${BOTPIT_REDIS_PORT:-6380}/0
+      EVENT_BUS: redis
       LLM_BASE_URL: http://localhost:11434
     volumes:
       - ./src:/app/src:ro

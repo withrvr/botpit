@@ -45,7 +45,16 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+# Fixed key for pg_advisory_lock so N app workers starting at once run the
+# migration exactly once and the rest wait on the lock. SQLite is single-process.
+_MIGRATION_LOCK_KEY = 0x0B07_9170
+
+
 def _run_sync(connection: Connection) -> None:
+    if connection.dialect.name == "postgresql":
+        connection.exec_driver_sql(f"SELECT pg_advisory_lock({_MIGRATION_LOCK_KEY})")
+        # Session-level lock survives the commit; alembic then opens its own transaction.
+        connection.commit()
     context.configure(
         connection=connection,
         target_metadata=target_metadata,

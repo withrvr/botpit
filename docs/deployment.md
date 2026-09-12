@@ -86,7 +86,7 @@ Services in `docker-compose.yml`:
 
 | Service | Image | Always on | Notes |
 |---|---|---|---|
-| `app` | built from `Dockerfile` | yes | uvicorn on 8000, non-root, stdlib healthcheck on `/health`. `env_file: .env.dev`, with `DATABASE_URL`, `REDIS_URL`, `EVENT_BUS=redis`, `LLM_BASE_URL`, `HOST` overridden for the compose network. Waits for postgres and redis to be healthy. |
+| `app` | built from `Dockerfile` | yes | uvicorn on 8000, non-root, stdlib healthcheck on `/health`. `env_file: .env.${BOTPIT_ENV:-dev}`; `FORWARDED_ALLOW_IPS=*` so client IPs behind Caddy are real. Not published; Caddy fronts it. Waits for postgres and redis to be healthy. |
 | `postgres` | `postgres:17-alpine` | yes | user/password/db `botpit`, volume `pgdata`. |
 | `redis` | `redis:8-alpine` | yes | AOF on, volume `redisdata`. |
 | `llm` | `ghcr.io/ggml-org/llama.cpp:server` | profile `llm` | serves `./models/${LLM_GGUF:-qwen3-4b.Q4_K_M.gguf}` on 8080 (flags from `local-model-setup.md` §3.4). |
@@ -99,9 +99,15 @@ Dev flow:
   uvicorn natively against them, or `make up-all` runs the app in compose
   too. In compose the override bind-mounts `./src:/app/src:ro` and adds
   `--reload`, so edits are picked up without a rebuild.
-- Ollama stays on the Windows host. The app container reaches it through
-  `host.docker.internal`, mapped to the host gateway with `extra_hosts`
-  (needed on Linux/WSL, harmless on Docker Desktop).
+- Ollama stays on the Windows host and binds 127.0.0.1 only, so the dev
+  override runs the app container with `network_mode: host`: it reaches
+  Ollama at `localhost:11434`, the published Postgres/Redis ports at
+  `localhost:5433`/`6380`, and serves on `localhost:8000` itself. The
+  override also sets `EVENT_BUS=redis` so the Redis bus path is exercised
+  locally every time the stack is up.
+- Migrations run in the app lifespan. On Postgres they take
+  `pg_advisory_lock` first, so several uvicorn workers starting together
+  apply them once.
 - `make llm-up` starts the `llm` profile to exercise the `openai_compat`
   adapter locally; point the app at it with `LLM_PROVIDER=openai_compat
   LLM_BASE_URL=http://llm:8080/v1`. Model files live in `./models`
@@ -114,6 +120,6 @@ environment file. `docker compose --profile llm --profile proxy up -d` with
 `env_file` pointing at `.env.staging` / `.env.production` and `BOTPIT_DOMAIN`
 set; Caddy provisions TLS and proxies to `app:8000` (websockets pass
 through). No override file on the server means no published database ports,
-no bind-mounted source, no `--reload`. Swapping `.env.dev` for the server env
-file in `env_file` is the one edit the deploy workflow makes (or it passes
-`--env-file`).
+no bind-mounted source, no `--reload`. `BOTPIT_ENV=staging` (or
+`production`) in the shell selects the env file; nothing in the compose
+file is edited on the server.

@@ -1,22 +1,18 @@
 # Production shape. Dev extras (ports for postgres/redis, src bind mount,
 # --reload) live in docker-compose.override.yml, which compose merges
 # automatically. On a server: `docker compose --profile proxy up -d` with
-# .env.staging / .env.production swapped in via env_file.
+# BOTPIT_ENV=staging|production selecting the env file. The app is not
+# published directly; Caddy fronts it.
 services:
   app:
     build: .
-    env_file: .env.dev
+    # BOTPIT_ENV picks the env file: .env.dev locally, .env.staging / .env.production
+    # on a server. Dev-only overrides (host network, local URLs) live in the override file.
+    env_file: .env.${BOTPIT_ENV:-dev}
     environment:
-      DATABASE_URL: postgresql+asyncpg://botpit:botpit@postgres:5432/botpit
-      REDIS_URL: redis://redis:6379/0
-      EVENT_BUS: redis
-      # Ollama runs on the Windows host, not in compose.
-      LLM_BASE_URL: http://host.docker.internal:11434
-      HOST: 0.0.0.0
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    ports:
-      - "8000:8000"
+      # Only Caddy (proxy profile) reaches the app on a server, so trusting
+      # X-Forwarded-For from any peer is safe and gives real client IPs in logs.
+      FORWARDED_ALLOW_IPS: "*"
     depends_on:
       postgres:
         condition: service_healthy
