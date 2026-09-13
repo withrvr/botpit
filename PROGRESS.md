@@ -296,6 +296,58 @@ replay from it." Two Postgres tables and the HTTP surface over them --
   and replay's own-seat-default/cross-seat-403/no-seat-400/upto-422 paths.
   Full suite: 751 tests, ruff/ruff-format/mypy strict/ty all clean.
 
+### Review fixes (two independent reviews: correctness/concurrency, security)
+
+- **Agent-published events never archived** (HIGH, correctness): the
+  race fix above was self-caught before review; this one wasn't.
+  `AgentController._publish` stamped no `correlation` at all, so every
+  `agent.reasoning`, `agent.turn_metrics`, and agent-authored `chat.message`
+  was silently dropped by `_archive_game`'s `correlation.game_id` filter --
+  contradicting `docs/games.md`'s own claim that `agent.*`/`chat.*` get
+  archived. Root cause: `AgentController` is constructed before
+  `Referee.__init__` generates its `game_id`, so it had nothing to stamp
+  with. Fixed by threading it through: `AgentController` gains a
+  `game_id: str | None` attribute (starts `None`); `Referee.__init__`
+  duck-type-sets it on any controller that declares the attribute (same
+  pattern as the existing `say`/`hear` hooks), right after generating its
+  own `game_id`; `_publish` now includes `correlation={"game_id": ...}`
+  once set. New regression test:
+  `test_referee_threads_its_game_id_into_agent_controllers` in
+  `tests/unit/referee/test_referee.py`.
+- **Inconsistent 404 message between "unknown game" and "game exists but
+  room denies you"** (LOW, security): two different `detail` strings for
+  the same status code let a caller who already holds a `game_id`
+  distinguish the two cases -- a one-bit side channel, and a regression
+  against `get_room`'s own explicit "never distinguish denied from does
+  not exist" rule. Fixed with a shared `_admitted_record` helper in
+  `games.py` that unifies both failure branches to the identical
+  `"Game not found"` 404 across all three routes. New test:
+  `test_unknown_game_and_denied_game_404_with_the_same_body`.
+- **Archiving completeness depends on the live bus's own retention**
+  (MEDIUM, correctness, documented not code-changed): both `EventBus`
+  implementations bound each room to `EVENT_STREAM_MAXLEN` (10,000)
+  events; `_archive_game` only sees whatever is still there when the game
+  ends. Ten thousand events for one game is enormous headroom for these
+  games' actual lengths, so left as a documented dependency
+  (`docs/games.md` "Left for later") rather than a code change -- the
+  cleaner fix (archive incrementally during play, not only at the end)
+  is future work, not urgent.
+- Reviewed and accepted as-is (no change needed): the explicit
+  `session.flush()` before adding `GameEvent` rows is correct and
+  sufficient (confirmed the whole archive is one transaction -- a later
+  failure rolls back the `GameRecord` insert too, no orphaned summary);
+  `replay`'s unfiltered fetch of `game.move_applied` rows is safe because
+  that event type is always published `PUBLIC` (verified in
+  `referee.py::_commit`), and the only channel back to the caller is the
+  seat-scoped `player_view`, never raw state or the raw move list; no
+  realistic IDOR/enumeration risk via `game_id` (a 122-bit `uuid4().hex`,
+  and every route re-derives `room_id` and re-checks admission
+  regardless); the three `/games` GET routes carrying no rate limit
+  matches every other read-only room route in this codebase (`GET
+  /rooms/{id}`, `/queue`, `/view`, `/moves/schema`, the live `/events`) --
+  not a gap introduced here.
+- Full suite after fixes: 753 tests, gate clean.
+
 ## Phase 2 — done pending PR review
 
 - `botpit.games.base`: `Game[State, Move]` contract, frozen pydantic state,

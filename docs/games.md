@@ -79,6 +79,19 @@ for a much worse reason.
 - **No pagination past `limit=100_000`** when reading the live bus or the
   archived rows. Generous for how long any of these games actually run;
   not a real cap that could truncate a legitimately long game's history.
+- **Archiving is only as complete as the live bus's own retention.** Both
+  `InMemoryEventBus` and `RedisStreamsEventBus` are bounded per room
+  (`EVENT_STREAM_MAXLEN`, default 10,000 events -- *per room*, not shared
+  across the whole bus). `_archive_game` reads whatever `bus.history()`
+  still has at the moment the game ends; if a single game's own event count
+  ever exceeded that cap before archiving ran, its earliest events
+  (possibly `game.started` itself) would already be evicted, and the
+  archive would be silently incomplete rather than erroring. Ten thousand
+  events for one game is enormous headroom for any of these games' actual
+  lengths (a few hundred moves at most, a handful of events each) -- not a
+  practical concern today, but a real dependency worth naming rather than
+  assuming away. Archiving incrementally during play, rather than only at
+  game end, would remove the dependency entirely; not built here.
 
 ## HTTP routes (`app/api/routes/games.py`, prefix `/games`, tag `games`)
 

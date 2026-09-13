@@ -17,9 +17,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import CurrentUser, RoomServiceDep, SessionDep
 from app.api.views import view_payload
-from app.events import EventEnvelope, filter_for_subscriber
+from app.events import EventEnvelope, Subscriber, filter_for_subscriber
 from app.games import get_game
-from app.models import GameEvent, GameRecordPublic
+from app.models import GameEvent, GameRecord, GameRecordPublic
 from app.referee import Referee, ReplayMismatchError
 from app.rooms.guard import resolve_subscriber
 from app.telemetry import get_logger
@@ -43,6 +43,30 @@ def _record_public(record: Any) -> GameRecordPublic:
         started_at=record.started_at,
         finished_at=record.finished_at,
     )
+
+
+def _admitted_record(
+    service: RoomServiceDep,
+    session: SessionDep,
+    request: Request,
+    user: CurrentUser,
+    game_id: str,
+) -> tuple[GameRecord, Subscriber]:
+    """Looks up the game and checks room admission as one indistinguishable
+    404: an unknown ``game_id`` and a real game in a room the caller can't
+    see must read identically, matching ``get_room``'s own "never
+    distinguish 'does not exist' from 'denied'" rule -- a caller who already
+    holds some ``game_id`` (a former player, a leaked log line) must not be
+    able to tell "no such game" apart from "that game's room denies you"."""
+    try:
+        record = service.get_game_record(game_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Game not found") from None
+    try:
+        subscriber = resolve_subscriber(service, session, request, user, record.room_id)
+    except HTTPException:
+        raise HTTPException(status_code=404, detail="Game not found") from None
+    return record, subscriber
 
 
 def _to_envelope(e: GameEvent) -> EventEnvelope:
@@ -70,11 +94,7 @@ def get_game_record(
     user: CurrentUser,
     game_id: str,
 ) -> Any:
-    try:
-        record = service.get_game_record(game_id)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Game not found")
-    resolve_subscriber(service, session, request, user, record.room_id)
+    record, _subscriber = _admitted_record(service, session, request, user, game_id)
     return _record_public(record)
 
 
@@ -92,12 +112,8 @@ def game_events(
     """The durable counterpart to the live ``/rooms/{room_id}/events``:
     ``since``/``next_since`` here are the archived ``seq`` integer, not a
     live bus cursor -- the game is over, there is nothing left to poll for."""
-    try:
-        record = service.get_game_record(game_id)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Game not found")
-    subscriber = resolve_subscriber(service, session, request, user, record.room_id)
-    rows = service.game_events(game_id, since=since, limit=limit)
+    record, subscriber = _admitted_record(service, session, request, user, game_id)
+    rows = service.game_events(record.id, since=since, limit=limit)
     envelopes = [_to_envelope(r) for r in rows]
     visible = [e for e in envelopes if filter_for_subscriber(e, subscriber) is not None]
     return {
@@ -128,11 +144,7 @@ def replay(
     the room's own live ``/view`` -- a cross-seat admin view is Phase 10's
     job, not this route's.
     """
-    try:
-        record = service.get_game_record(game_id)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Game not found")
-    subscriber = resolve_subscriber(service, session, request, user, record.room_id)
+    record, subscriber = _admitted_record(service, session, request, user, game_id)
 
     if seat is None:
         seat = subscriber.seat
@@ -143,7 +155,7 @@ def replay(
     elif subscriber.kind != "privileged" and seat != subscriber.seat:
         raise HTTPException(status_code=403, detail="not your seat")
 
-    rows = service.game_events(game_id, since=None, limit=100_000)
+    rows = service.game_events(record.id, since=None, limit=100_000)
     moves = [r.payload["move"] for r in rows if r.type == "game.move_applied"]
     if upto is None:
         upto = len(moves)

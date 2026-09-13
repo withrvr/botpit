@@ -69,6 +69,16 @@ class Referee:
         self.moves: list[dict[str, Any]] = []
         self.game_id = uuid.uuid4().hex
         self.published: int = 0
+        # Duck-typed, same pattern as the `say`/`hear` hooks below: a
+        # controller (currently only `AgentController`) that declares a
+        # `game_id` attribute gets it set to this referee's own id, so its
+        # own published events (agent.*, its chat.*) carry the same
+        # `correlation.game_id` this referee's own `_publish` stamps --
+        # without it, `RoomService._archive_game` (Phase 9) never archives
+        # anything an agent seat published, only the referee's own events.
+        for controller in self.controllers.values():
+            if hasattr(controller, "game_id"):
+                setattr(controller, "game_id", self.game_id)  # noqa: B010
 
     # -- public -----------------------------------------------------------
 

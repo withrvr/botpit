@@ -135,6 +135,23 @@ def test_get_game_record_404_for_unknown_id(
     assert r.status_code == 404
 
 
+def test_unknown_game_and_denied_game_404_with_the_same_body(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    """Security review fix: an unknown ``game_id`` and a real game whose room
+    denies the caller must be indistinguishable -- otherwise a caller who
+    already holds some ``game_id`` (a former player, a leaked log line)
+    could tell "no such game" apart from "that game's room denies you"."""
+    room_id, _seats = _start_and_stop(client, superuser_token_headers)
+    record = _wait_for_record(db, room_id)
+    outsider = _new_user_headers(client)
+
+    unknown = client.get(f"{API}/games/no-such-game", headers=outsider)
+    denied = client.get(f"{API}/games/{record.id}", headers=outsider)
+    assert unknown.status_code == denied.status_code == 404
+    assert unknown.json() == denied.json()
+
+
 def test_get_game_record_visible_to_creator_and_seated_player(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
@@ -290,7 +307,9 @@ async def test_finish_room_archives_even_when_stop_already_won_the_status_race(
 
     await service._finish_room(str(room.id), "stopped")
 
-    record = service.get_game_record(game_id)  # raises LookupError if archiving was skipped
+    record = service.get_game_record(
+        game_id
+    )  # raises LookupError if archiving was skipped
     assert record.outcome == "stopped"
     assert record.room_id == room.id
 

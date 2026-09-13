@@ -62,6 +62,13 @@ class AgentController:
         self.think = think
         self.recent_chat: list[ChatMessage] = []
         self.last_move_description: str | None = None
+        # Set by `Referee.__init__` (duck-typed, same pattern as `say`/`hear`
+        # elsewhere in the referee) once the referee's own `game_id` exists --
+        # this controller is constructed before that, so it starts as None.
+        # Without it, every event this controller publishes carries no
+        # `correlation.game_id` and `RoomService._archive_game` (Phase 9,
+        # docs/games.md) silently never archives it.
+        self.game_id: str | None = None
 
     # -- call 1: reasoning + move -------------------------------------------
 
@@ -191,7 +198,10 @@ class AgentController:
             ev.add("llm.calls", {"model": self.model, **fields})
 
     async def _publish(self, payload: Any, visibility: Any) -> None:
-        await self.bus.publish(make_event(self.room_id, payload, visibility))
+        correlation = {"game_id": self.game_id} if self.game_id else {}
+        await self.bus.publish(
+            make_event(self.room_id, payload, visibility, correlation=correlation)
+        )
 
 
 def _compatible(candidate: dict[str, Any], legal: dict[str, Any]) -> bool:
