@@ -1,6 +1,15 @@
 from fastapi import APIRouter
 
-from app.api.routes import health, items, login, private, users, utils
+from app.api.routes import (
+    admin,
+    health,
+    items,
+    login,
+    private,
+    roles,
+    users,
+    utils,
+)
 from app.core.config import settings
 
 api_router = APIRouter()
@@ -9,6 +18,9 @@ api_router.include_router(users.router)
 api_router.include_router(utils.router)
 api_router.include_router(items.router)
 api_router.include_router(health.router)
+api_router.include_router(roles.router)
+api_router.include_router(admin.router)
+api_router.include_router(admin.me_router)
 
 
 if settings.FASTAPI_ENV == "development":

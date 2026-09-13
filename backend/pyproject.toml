@@ -106,6 +106,7 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 markers = [
     "integration: needs live Redis (docker compose up redis)",
+    "redis: unit test that needs live Redis for Lua scripts (skipped when unreachable)",
     "ollama: needs a reachable Ollama with the configured models",
 ]
 addopts = "-q --strict-markers -m 'not ollama'"

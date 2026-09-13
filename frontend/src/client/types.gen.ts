@@ -35,6 +35,82 @@ export type Body_login_login_access_token = {
 };
 
 /**
+ * FeatureFlagOverrideCreate
+ */
+export type FeatureFlagOverrideCreate = {
+    /**
+     * Role
+     */
+    role?: string | null;
+    /**
+     * User Id
+     */
+    user_id?: string | null;
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+};
+
+/**
+ * FeatureFlagOverridePublic
+ */
+export type FeatureFlagOverridePublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Role
+     */
+    role: string | null;
+    /**
+     * User Id
+     */
+    user_id: string | null;
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+};
+
+/**
+ * FeatureFlagPublic
+ */
+export type FeatureFlagPublic = {
+    /**
+     * Key
+     */
+    key: string;
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+    /**
+     * Effective
+     */
+    effective: boolean;
+    /**
+     * Description
+     */
+    description: string | null;
+    /**
+     * Overrides
+     */
+    overrides: Array<FeatureFlagOverridePublic>;
+};
+
+/**
+ * FeatureFlagUpdate
+ */
+export type FeatureFlagUpdate = {
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+};
+
+/**
  * HTTPValidationError
  */
 export type HTTPValidationError = {
@@ -209,6 +285,16 @@ export type NewPassword = {
 };
 
 /**
+ * PermissionsPublic
+ */
+export type PermissionsPublic = {
+    /**
+     * Permissions
+     */
+    permissions: Array<string>;
+};
+
+/**
  * PrivateUserCreate
  */
 export type PrivateUserCreate = {
@@ -228,6 +314,88 @@ export type PrivateUserCreate = {
      * Is Verified
      */
     is_verified?: boolean;
+};
+
+/**
+ * RoleAssignment
+ */
+export type RoleAssignment = {
+    /**
+     * Role
+     */
+    role: string;
+    /**
+     * Room Id
+     */
+    room_id?: string | null;
+};
+
+/**
+ * RolePublic
+ */
+export type RolePublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Scope
+     */
+    scope: string;
+    /**
+     * Description
+     */
+    description: string;
+};
+
+/**
+ * RuntimeSettingPublic
+ */
+export type RuntimeSettingPublic = {
+    /**
+     * Key
+     */
+    key: string;
+    /**
+     * Value
+     */
+    value: unknown;
+    /**
+     * Default
+     */
+    default: unknown;
+    /**
+     * Overridden
+     */
+    overridden: boolean;
+    /**
+     * Description
+     */
+    description: string;
+};
+
+/**
+ * RuntimeSettingUpdate
+ */
+export type RuntimeSettingUpdate = {
+    /**
+     * Value
+     */
+    value: unknown;
+};
+
+/**
+ * RuntimeSettingsPublic
+ */
+export type RuntimeSettingsPublic = {
+    /**
+     * Data
+     */
+    data: Array<RuntimeSettingPublic>;
 };
 
 /**
@@ -330,6 +498,20 @@ export type UserRegister = {
      * Full Name
      */
     full_name?: string | null;
+};
+
+/**
+ * UserRolesPublic
+ */
+export type UserRolesPublic = {
+    /**
+     * User Id
+     */
+    user_id: string;
+    /**
+     * Roles
+     */
+    roles: Array<RoleAssignment>;
 };
 
 /**
@@ -681,6 +863,22 @@ export type usersUpdatePasswordMeResponses = {
 
 export type usersUpdatePasswordMeResponse = usersUpdatePasswordMeResponses[keyof usersUpdatePasswordMeResponses];
 
+export type usersReadUserMePermissionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/users/me/permissions';
+};
+
+export type usersReadUserMePermissionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: PermissionsPublic;
+};
+
+export type usersReadUserMePermissionsResponse = usersReadUserMePermissionsResponses[keyof usersReadUserMePermissionsResponses];
+
 export type usersRegisterUserData = {
     body: UserRegister;
     path?: never;
@@ -1024,6 +1222,317 @@ export type healthHealthLlmResponses = {
 };
 
 export type healthHealthLlmResponse = healthHealthLlmResponses[keyof healthHealthLlmResponses];
+
+export type rolesReadRolesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/roles/';
+};
+
+export type rolesReadRolesResponses = {
+    /**
+     * Response Roles-Read Roles
+     *
+     * Successful Response
+     */
+    200: Array<RolePublic>;
+};
+
+export type rolesReadRolesResponse = rolesReadRolesResponses[keyof rolesReadRolesResponses];
+
+export type rolesReadPermissionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/roles/permissions';
+};
+
+export type rolesReadPermissionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: PermissionsPublic;
+};
+
+export type rolesReadPermissionsResponse = rolesReadPermissionsResponses[keyof rolesReadPermissionsResponses];
+
+export type rolesReadUserRolesData = {
+    body?: never;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/api/v1/roles/users/{user_id}';
+};
+
+export type rolesReadUserRolesErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type rolesReadUserRolesError = rolesReadUserRolesErrors[keyof rolesReadUserRolesErrors];
+
+export type rolesReadUserRolesResponses = {
+    /**
+     * Successful Response
+     */
+    200: UserRolesPublic;
+};
+
+export type rolesReadUserRolesResponse = rolesReadUserRolesResponses[keyof rolesReadUserRolesResponses];
+
+export type rolesGrantUserRoleData = {
+    body: RoleAssignment;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/api/v1/roles/users/{user_id}';
+};
+
+export type rolesGrantUserRoleErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type rolesGrantUserRoleError = rolesGrantUserRoleErrors[keyof rolesGrantUserRoleErrors];
+
+export type rolesGrantUserRoleResponses = {
+    /**
+     * Successful Response
+     */
+    200: UserRolesPublic;
+};
+
+export type rolesGrantUserRoleResponse = rolesGrantUserRoleResponses[keyof rolesGrantUserRoleResponses];
+
+export type rolesRevokeUserRoleData = {
+    body?: never;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+        /**
+         * Role
+         */
+        role: string;
+    };
+    query?: {
+        /**
+         * Room Id
+         */
+        room_id?: string | null;
+    };
+    url: '/api/v1/roles/users/{user_id}/{role}';
+};
+
+export type rolesRevokeUserRoleErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type rolesRevokeUserRoleError = rolesRevokeUserRoleErrors[keyof rolesRevokeUserRoleErrors];
+
+export type rolesRevokeUserRoleResponses = {
+    /**
+     * Successful Response
+     */
+    200: Message;
+};
+
+export type rolesRevokeUserRoleResponse = rolesRevokeUserRoleResponses[keyof rolesRevokeUserRoleResponses];
+
+export type adminReadSettingsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/admin/settings';
+};
+
+export type adminReadSettingsResponses = {
+    /**
+     * Successful Response
+     */
+    200: RuntimeSettingsPublic;
+};
+
+export type adminReadSettingsResponse = adminReadSettingsResponses[keyof adminReadSettingsResponses];
+
+export type adminUpdateSettingData = {
+    body: RuntimeSettingUpdate;
+    path: {
+        /**
+         * Key
+         */
+        key: string;
+    };
+    query?: never;
+    url: '/api/v1/admin/settings/{key}';
+};
+
+export type adminUpdateSettingErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type adminUpdateSettingError = adminUpdateSettingErrors[keyof adminUpdateSettingErrors];
+
+export type adminUpdateSettingResponses = {
+    /**
+     * Successful Response
+     */
+    200: RuntimeSettingPublic;
+};
+
+export type adminUpdateSettingResponse = adminUpdateSettingResponses[keyof adminUpdateSettingResponses];
+
+export type adminReadFlagsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/admin/flags';
+};
+
+export type adminReadFlagsResponses = {
+    /**
+     * Response Admin-Read Flags
+     *
+     * Successful Response
+     */
+    200: Array<FeatureFlagPublic>;
+};
+
+export type adminReadFlagsResponse = adminReadFlagsResponses[keyof adminReadFlagsResponses];
+
+export type adminUpdateFlagData = {
+    body: FeatureFlagUpdate;
+    path: {
+        /**
+         * Key
+         */
+        key: string;
+    };
+    query?: never;
+    url: '/api/v1/admin/flags/{key}';
+};
+
+export type adminUpdateFlagErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type adminUpdateFlagError = adminUpdateFlagErrors[keyof adminUpdateFlagErrors];
+
+export type adminUpdateFlagResponses = {
+    /**
+     * Successful Response
+     */
+    200: FeatureFlagPublic;
+};
+
+export type adminUpdateFlagResponse = adminUpdateFlagResponses[keyof adminUpdateFlagResponses];
+
+export type adminCreateOverrideData = {
+    body: FeatureFlagOverrideCreate;
+    path: {
+        /**
+         * Key
+         */
+        key: string;
+    };
+    query?: never;
+    url: '/api/v1/admin/flags/{key}/overrides';
+};
+
+export type adminCreateOverrideErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type adminCreateOverrideError = adminCreateOverrideErrors[keyof adminCreateOverrideErrors];
+
+export type adminCreateOverrideResponses = {
+    /**
+     * Successful Response
+     */
+    200: FeatureFlagOverridePublic;
+};
+
+export type adminCreateOverrideResponse = adminCreateOverrideResponses[keyof adminCreateOverrideResponses];
+
+export type adminRemoveOverrideData = {
+    body?: never;
+    path: {
+        /**
+         * Key
+         */
+        key: string;
+        /**
+         * Override Id
+         */
+        override_id: string;
+    };
+    query?: never;
+    url: '/api/v1/admin/flags/{key}/overrides/{override_id}';
+};
+
+export type adminRemoveOverrideErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type adminRemoveOverrideError = adminRemoveOverrideErrors[keyof adminRemoveOverrideErrors];
+
+export type adminRemoveOverrideResponses = {
+    /**
+     * Successful Response
+     */
+    200: Message;
+};
+
+export type adminRemoveOverrideResponse = adminRemoveOverrideResponses[keyof adminRemoveOverrideResponses];
+
+export type flagsReadMyFlagsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/flags/me';
+};
+
+export type flagsReadMyFlagsResponses = {
+    /**
+     * Response Flags-Read My Flags
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: boolean;
+    };
+};
+
+export type flagsReadMyFlagsResponse = flagsReadMyFlagsResponses[keyof flagsReadMyFlagsResponses];
 
 export type privateCreateUserData = {
     body: PrivateUserCreate;
