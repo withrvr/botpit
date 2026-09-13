@@ -19,7 +19,7 @@ dependencies = [
     "pyjwt<3.0.0,>=2.13.0",
     "pwdlib[argon2,bcrypt]>=0.3.1",
     # botpit
-    "redis[hiredis]>=5.2",
+    "redis[hiredis]>=8.1.0",
     "websockets>=13",
 ]
 
