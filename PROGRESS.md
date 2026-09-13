@@ -32,10 +32,11 @@ branch; only the phase branch opens a PR into `master`.
 | 3 | Deterministic referee, mixed seats | done 2026-09-12 (PR #10) |
 | 4 | Privacy gate, prompt builder, human redaction | done 2026-09-12 (PR #10) |
 | 5 | Agent client, swappable backend | done 2026-09-12 (PR #10) |
-| 6 | Auth, accounts, roles/permissions | done 2026-09-12 (branch phase-6-auth, PR pending) |
-| 7 | Rooms, seats, capacity, join queue | done 2026-09-13 (branch phase-7-rooms) |
-| 8 | First live mixed game (terminal + API) | done 2026-09-13 (branch phase-8-live-game, PR pending) |
-| 9 | Persistence and replay | done 2026-09-13 (branch phase-9-game-history, PR pending) |
+| 6 | Auth, accounts, roles/permissions | done 2026-09-12 (PR #11) |
+| 7 | Rooms, seats, capacity, join queue | done 2026-09-13 (PR #12) |
+| 8 | First live mixed game (terminal + API) | done 2026-09-13 (PR #13) |
+| 9 | Persistence and replay | done 2026-09-13 (PR #14) |
+| 9.5 | Stabilize, document, rebrand | done 2026-09-13 (branch phase-9.5-stabilize-and-rebrand, PR pending) |
 | 10 | Frontend: play, spectate, admin, focus view | |
 | 11 | Chat and personas | |
 | 12 | Leaderboard | |
@@ -347,6 +348,104 @@ replay from it." Two Postgres tables and the HTTP surface over them --
   /rooms/{id}`, `/queue`, `/view`, `/moves/schema`, the live `/events`) --
   not a gap introduced here.
 - Full suite after fixes: 753 tests, gate clean.
+
+## Phase 9.5 — done 2026-09-13 (branch phase-9.5-stabilize-and-rebrand)
+
+A deliberate pause between backend work and the frontend (Phase 10):
+stabilize, document, and rebrand everything built so far. No new game
+features. Done with the planner's structure but the planning itself done
+directly rather than through a dedicated planner-agent call (full context
+of all nine prior phases was already in hand; a fresh planner subagent
+would only have re-derived it from this same PROGRESS.md at real cost for
+no added judgment) -- git worktrees and parallel subagents were used for
+the three genuinely independent pieces per the brief.
+
+- **Dependency audit** (`docs/development/dependency-audit.md`): backend
+  `uv lock --upgrade` (30 packages within existing ranges: fastapi,
+  sqlalchemy, sqlmodel, starlette, uvicorn, pydantic, alembic, psycopg,
+  the dev toolchain), frontend `bun update` (react/react-query/router,
+  tailwindcss, biome, vite, ~20 packages). Two major-version bumps
+  (`@tanstack/react-table` v8->v9, `typescript` v6->v7) deliberately left
+  for Phase 10 to decide, since they'd need real code migration in files
+  Phase 10 is about to touch anyway; `axios`/`form-data`'s exact pins left
+  alone (no record of why they're pinned, not worth risking). Python
+  3.14 consistency confirmed (`.python-version` read by every CI workflow
+  that needs it). Full suite green after (753 tests), frontend build/lint
+  clean.
+- **Documentation reorganized** into `docs/`: `docs/architecture/` gets
+  one historical-snapshot file per completed phase (00 through 9, plus
+  2b for the template-adoption pivot) mined from this file's own
+  per-phase records, plus `latest_architecture.md` (always-current, read
+  fresh from the actual code -- module layout, data flow, every HTTP
+  route, every DB table, every event type). `docs/api/api-reference.md`
+  generated from the real route/model code, not memory. `docs/stack.md`
+  consolidates the old `docs/research/stack-choices.md` (deleted).
+  `docs/development/setup.md` and `docs/deployment/{staging,production}.md`
+  fold in real content from three stray root docs (`development.md`,
+  `deployment.md`, `deployment-docker-compose.md`, all deleted), rewritten
+  for botpit with no template placeholders -- staging/production stated
+  plainly as *planned*, not live, per the standing no-server-until-local
+  constraint. `release-notes.md` (the upstream template's own changelog)
+  deleted outright. Everything else already under `docs/` was reviewed
+  and left in place (already matched the target structure) except
+  `docs/persistence.md`, which was rewritten -- it was stale, still
+  describing Phase 1's async-SQLAlchemy/SQLite design that Phase 2b
+  superseded. `DECISIONS.md`/`PROGRESS.md` stay at the repo root as the
+  project's permanent decision/status logs, not "documentation to
+  reorganize" -- not named in the target structure and moving them would
+  break every cross-reference in this whole build.
+- **`scripts/dev.sh`**: one-command tmux launcher (session `botpit-dev`;
+  windows for the backend with reload, the frontend dev server, Docker
+  Compose Postgres/Redis, and container logs). Idempotent (attaches to an
+  existing session instead of erroring), guards the frontend window in
+  case it's ever unscaffolded again, and was actually run twice (not just
+  syntax-checked) to confirm every window starts cleanly and the
+  idempotency check works.
+- **Rebranding**: removed every trace of the template's own cosmetic
+  identity -- package names (`backend/pyproject.toml`, root and frontend
+  `package.json`), the frontend's title/favicon/logo/footer credits (the
+  FastAPI lightning-bolt logo and its four SVG assets deleted, replaced
+  with a plain "botpit" wordmark -- no fabricated visual identity
+  invented), nine template screenshot/preview images under root `img/`
+  (deleted, unreferenced by the rewritten README). `DECISIONS.md`,
+  `PROGRESS.md`, and `.github/workflows/*` deliberately untouched -- the
+  first two legitimately document the template-adoption decision as
+  history, and the workflows' template references are a standing,
+  recorded deferral to Phase 14 (this file's own Phase 2b note), not an
+  oversight.
+- **Root files**: `README.md` rewritten marketing-facing (what botpit is,
+  a quickstart pointer to `docs/development/setup.md`, links out to
+  `docs/` for everything technical, no deployed-instance claims).
+  `CONTRIBUTING.md` rewritten with the real branch/PR/test conventions.
+  Added `LICENSE` (MIT), `CODE_OF_CONDUCT.md` (Contributor Covenant
+  v2.1), `SECURITY.md` (private GitHub security-advisory reporting, given
+  real auth/RBAC now exists), and `llms.txt` (a factual, non-marketing
+  project summary for crawlers/LLM tools -- explicitly notes HTTP-polling
+  only and no frontend yet, so it can't go stale-by-omission).
+- **Two real regressions caught by re-running the full gate after every
+  merge, not assumed away**: renaming `backend/pyproject.toml`'s package
+  off `"app"` broke hatchling's default wheel file-selection heuristic
+  (it looks for a source directory matching the project name; the actual
+  tree is still `app/`) -- fixed with an explicit
+  `[tool.hatch.build.targets.wheel] packages = ["app"]`. Renaming
+  `frontend/package.json`'s package off `"frontend"` broke every
+  `bun run --filter frontend ...` call site this repo's own tooling
+  depends on (root `package.json`'s scripts, `scripts/generate-client.sh`,
+  and the `prek` "Generate Frontend SDK" hook that calls them) -- fixed
+  by updating those call sites to `--filter botpit-frontend` (leaving
+  `.github/workflows/deploy.yml`'s identical stale reference alone, per
+  the same Phase 14 deferral as above).
+- **Not done, explicitly, per the brief's own instruction to say so
+  rather than add unused placeholders**: `robots.txt`, `sitemap.xml`, and
+  Open Graph/meta tags do not exist yet. They only make sense once
+  Phase 10's frontend exists and is actually deployed somewhere
+  crawlable, and neither is true yet -- there is no frontend and no
+  hosted instance (a standing project constraint, not an oversight).
+  Revisit this once Phase 10 ships and, separately, once staging/
+  production actually exist.
+- Full gate after every merge in this phase: `ruff check`/`mypy app`/
+  `ty check app` clean, backend suite 753 tests green, frontend
+  `bun run build`/`bun run lint` clean, `prek run --all-files` clean.
 
 ## Phase 2 — done pending PR review
 

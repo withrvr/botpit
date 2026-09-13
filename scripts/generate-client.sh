@@ -7,5 +7,5 @@ cd backend
 FASTAPI_ENV=development uv run python -c "import app.main; import json; print(json.dumps(app.main.app.openapi()))" > ../openapi.json
 cd ..
 mv openapi.json frontend/
-bun run --filter frontend generate-client
+bun run --filter botpit-frontend generate-client
 bun run lint
