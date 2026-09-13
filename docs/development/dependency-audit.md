@@ -21,10 +21,11 @@ stable ~2 weeks before this pass).
 ### Backend
 
 `uv lock --upgrade` picked up the small remainder left after Phase 9.5
-(`ast-serialize`, `coverage`, `pydantic-core` patch bumps). Two
-`pyproject.toml` version *floors* were also raised to match what was
-already resolving anyway, closing Dependabot PRs #8/#9 for real rather than
-just resolving past their proposed floor invisibly:
+(`ast-serialize` and `coverage` patch bumps -- `pydantic-core` did *not*
+move here; see below for why). Two `pyproject.toml` version *floors* were
+also raised to match what was already resolving anyway, closing Dependabot
+PRs #8/#9 for real rather than just resolving past their proposed floor
+invisibly:
 
 - `redis[hiredis]`: `>=5.2` -> `>=8.1.0`
 - `psycopg[binary]`: `>=3.3.4,<4.0.0` -> `>=3.3.5,<4.0.0`
