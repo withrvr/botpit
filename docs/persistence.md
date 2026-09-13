@@ -1,47 +1,77 @@
 # Persistence
 
-SQLAlchemy 2.0 async + Alembic. One models module, one migration chain, two
-dialects: SQLite (`sqlite+aiosqlite`) for dev and tests, Postgres
-(`postgresql+asyncpg`) later. `DATABASE_URL` in settings picks the dialect;
-nothing else in the app branches on it.
+SQLModel with a **sync** engine (psycopg driver), Postgres only, migrated
+with Alembic — the template's own persistence layer (DECISIONS.md §15),
+adopted at the Phase 2b template pivot in place of the original Phase 1
+design (async SQLAlchemy 2.0 across SQLite-for-dev and Postgres-for-later,
+which is what an older version of this document described). One models
+module, one migration chain, one dialect.
 
 ## Layout
 
 | Path | Role |
-|------|------|
-| `src/botpit/db/base.py` | `Base`, type map, `TimestampMixin`, `UUIDPrimaryKeyMixin`, naming convention |
-| `src/botpit/db/models.py` | every table; import this and Alembic sees all of them |
-| `src/botpit/db/session.py` | lazy engine, `get_sessionmaker()`, `get_session()` FastAPI dependency, `dispose_engine()` |
-| `src/botpit/db/migrate.py` | `upgrade_to_head(url)` / `downgrade_to_base(url)` for lifespan and tests |
-| `alembic.ini`, `migrations/` | Alembic config, async `env.py`, versions |
+|---|---|
+| `backend/app/models.py` | every table (`SQLModel` subclasses with `table=True`) plus every request/response schema, in one module |
+| `backend/app/core/db.py` | `engine = create_engine(str(settings.DATABASE_URL), pool_pre_ping=True)`; `init_db(session)` seeds the first superuser |
+| `backend/app/api/deps.py` | `SessionDep` — the FastAPI dependency every route uses to get a `Session` |
+| `backend/app/alembic/` | Alembic config: `env.py` (imports `app.models.SQLModel.metadata` as `target_metadata`, reads the URL from `settings.DATABASE_URL`), `versions/` |
+| `backend/scripts/prestart.sh` | `alembic upgrade head` then `python app/initial_data.py` — run before the server starts (in `compose.yml`'s `backend` entrypoint chain and by hand in dev), **not** in the app lifespan |
+
+`DATABASE_URL` is a `PostgresDsn`; a `postgres://`/`postgresql://` scheme is
+rewritten to `postgresql+psycopg://` by a `field_validator` in
+`backend/app/core/config.py` so the URL in `.env` can be written either way.
 
 ## Adding a model
 
-1. Add the class to `src/botpit/db/models.py`, subclassing `Base` plus the mixins you need, and list it in `__all__`.
-2. Annotate with types from the `type_annotation_map`: `datetime` -> `DateTime(timezone=True)`, `dict[str, Any]` -> `JSON`, `str`, `int`, `bool`, `str | None`. Nothing dialect-specific.
-3. Autogenerate a migration (below) and read the result before committing it.
+1. Add the class to `backend/app/models.py`, subclassing `SQLModel` with
+   `table=True`. Use `Field(foreign_key=..., ondelete=...)` for
+   relationships; portable column types only — the two-dialect rules that
+   used to apply here (SQLite compatibility, batch-mode `ALTER`) no longer
+   do, since Postgres is the only target, but keep using SQLModel's
+   `sa_type=` for anything that needs an explicit Postgres type
+   (`DateTime(timezone=True)`, `BigInteger`, `JSON` via `Column(JSON, ...)`
+   — see `Room.seed`, `RuntimeSetting.value` for examples already in the
+   codebase).
+2. Write request/response schemas (plain `SQLModel` without `table=True`)
+   next to it — this codebase keeps DB tables and their public/create/update
+   shapes in the same file, not split into separate `schemas.py`.
+3. Autogenerate a migration (below) and read the result before committing.
 
 ## Autogenerating a migration
 
 ```bash
-uv run alembic upgrade head                             # bring the dev DB to head first
-uv run alembic revision --autogenerate -m "add players"  # writes migrations/versions/<rev>_add_players.py
+cd backend
+uv run alembic upgrade head                                  # bring the dev DB to head first
+uv run alembic revision --autogenerate -m "add players"      # writes app/alembic/versions/<rev>_add_players.py
 ```
 
-Pass `-x url=sqlite+aiosqlite:///path.db` (or a Postgres URL) to target another database.
-Hand-check the file: `server_default` should be `sa.func.now()` rather than the
-dialect-rendered `sa.text('(CURRENT_TIMESTAMP)')`, and the downgrade must undo
-the upgrade. `tests/unit/test_db.py::test_migrations_up_down_and_no_drift` fails if
-models and migrations disagree, so a forgotten migration cannot ship.
+Hand-check the generated file: constraint/index names should come out
+deterministic (SQLModel/SQLAlchemy's default naming), foreign keys should
+carry the `ondelete` you intended (autogenerate sometimes needs a nudge for
+this), and the downgrade must actually undo the upgrade. `f54e8ebd4583_game_history_phase_9.py`
+(Phase 9's `GameRecord`/`GameEvent` migration) is a recent example of a
+clean autogenerate against two new tables only — a good reference for what
+"generated cleanly" looks like.
 
-## Two-dialect rules
+## Migration chain
 
-- Portable column types only: `String`, `Integer`, `Boolean`, `DateTime(timezone=True)`, `JSON`. UUIDs are 32-char hex strings (`UUIDPrimaryKeyMixin`), not native UUID columns. No `JSONB`, no `ARRAY`, no Postgres enums.
-- Every constraint gets a deterministic name from the `MetaData` naming convention. SQLite cannot `ALTER` constraints, so Alembic runs in batch mode there (`render_as_batch=True` in `env.py`); batch mode needs names to drop and recreate them. Use `with op.batch_alter_table("t") as batch:` in hand-written migrations that alter columns or constraints.
-- No dialect-specific SQL in models, migrations or queries. The single allowed branch is `build_engine()` in `session.py` (aiosqlite `check_same_thread`, `StaticPool` for in-memory, `PRAGMA foreign_keys=ON`).
-- SQLite stores timestamps as naive UTC strings; Postgres returns aware datetimes. Treat all stored times as UTC and never compare `tzinfo` in app code.
+Chronological, oldest first (template migrations, then botpit's own):
+
+| Revision | What it added |
+|---|---|
+| `e2412789c190` | initial models (template: `User`, `Item`) |
+| `d98dd8ec85a3` | UUID primary keys replacing integer ids |
+| `1a31ce608336` | cascade-delete relationships |
+| `9c0a54914c78` | explicit `String`/`VARCHAR` max lengths |
+| `fe56fa70289e` | `created_at` on `User`/`Item` |
+| `a1b2c3d4e5f6` | RBAC: `role`, `permission`, `role_permission`, `user_role`, `room_role` (Phase 6, `docs/roles-and-permissions.md`) |
+| `ce9cf9ad654e` | rooms: `room`, `room_seat`, `runtime_setting`, `feature_flag`, `feature_flag_override`, plus the deferred `room_role.room_id` FK (Phase 7, `docs/rooms.md`) |
+| `f54e8ebd4583` | game history: `game_record`, `game_event` (Phase 9, `docs/games.md`) |
 
 ## How tests migrate
 
-- Unit tests use the in-memory URL from `tests/conftest.py` and `create_all_for_tests(engine)` for speed; migration tests migrate a temp file DB through `upgrade_to_head(url)` / `downgrade_to_base(url)` and assert `alembic.autogenerate.compare_metadata` returns no diff.
-- `tests/integration/test_db_postgres.py` (marker `integration`) runs the same chain against Postgres when `DATABASE_URL=postgresql+asyncpg://...` is set: `DATABASE_URL=... uv run pytest -m integration`.
+The test suite runs against a real Postgres instance (no in-memory or
+SQLite fallback — Postgres is the only supported dialect now). CI and local
+test runs point `DATABASE_URL` at the Compose-provided Postgres
+(`docs/development/setup.md`) and migrations are applied the same way a
+real deploy applies them: `alembic upgrade head` before the suite runs.
