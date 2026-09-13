@@ -111,6 +111,56 @@ export type FeatureFlagUpdate = {
 };
 
 /**
+ * GameRecordPublic
+ */
+export type GameRecordPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Room Id
+     */
+    room_id: string;
+    /**
+     * Game
+     */
+    game: string;
+    /**
+     * Seat Count
+     */
+    seat_count: number;
+    /**
+     * Outcome
+     */
+    outcome: string;
+    /**
+     * Winner Seat
+     */
+    winner_seat: number | null;
+    /**
+     * Ranking
+     */
+    ranking: Array<number>;
+    /**
+     * Scores
+     */
+    scores: Array<number>;
+    /**
+     * Move Count
+     */
+    move_count: number;
+    /**
+     * Started At
+     */
+    started_at: string;
+    /**
+     * Finished At
+     */
+    finished_at: string;
+};
+
+/**
  * HTTPValidationError
  */
 export type HTTPValidationError = {
@@ -2093,6 +2143,114 @@ export type roomsRoomEventsError = roomsRoomEventsErrors[keyof roomsRoomEventsEr
 export type roomsRoomEventsResponses = {
     /**
      * Response Rooms-Room Events
+     *
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type gamesGetGameRecordData = {
+    body?: never;
+    path: {
+        /**
+         * Game Id
+         */
+        game_id: string;
+    };
+    query?: never;
+    url: '/api/v1/games/{game_id}';
+};
+
+export type gamesGetGameRecordErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type gamesGetGameRecordError = gamesGetGameRecordErrors[keyof gamesGetGameRecordErrors];
+
+export type gamesGetGameRecordResponses = {
+    /**
+     * Successful Response
+     */
+    200: GameRecordPublic;
+};
+
+export type gamesGetGameRecordResponse = gamesGetGameRecordResponses[keyof gamesGetGameRecordResponses];
+
+export type gamesGameEventsData = {
+    body?: never;
+    path: {
+        /**
+         * Game Id
+         */
+        game_id: string;
+    };
+    query?: {
+        /**
+         * Since
+         */
+        since?: number | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/games/{game_id}/events';
+};
+
+export type gamesGameEventsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type gamesGameEventsError = gamesGameEventsErrors[keyof gamesGameEventsErrors];
+
+export type gamesGameEventsResponses = {
+    /**
+     * Response Games-Game Events
+     *
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type gamesReplayData = {
+    body?: never;
+    path: {
+        /**
+         * Game Id
+         */
+        game_id: string;
+    };
+    query?: {
+        /**
+         * Seat
+         */
+        seat?: number | null;
+        /**
+         * Upto
+         */
+        upto?: number | null;
+    };
+    url: '/api/v1/games/{game_id}/replay';
+};
+
+export type gamesReplayErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type gamesReplayError = gamesReplayErrors[keyof gamesReplayErrors];
+
+export type gamesReplayResponses = {
+    /**
+     * Response Games-Replay
      *
      * Successful Response
      */

@@ -142,7 +142,9 @@ or calls another async method; everything else (`get`, `list_public`,
   `status="in_progress"`, `started_at=now`.
 - **`_finish_room(room_id, outcome)`** — `GameRunner`'s completion callback
   (`outcome` is `"finished"` when the referee returned normally, `"stopped"`
-  when it was cancelled or raised); see "Room lifecycle" below.
+  when it was cancelled or raised); see "Room lifecycle" below. Also calls
+  `_archive_game` (Phase 9, `docs/games.md`) to copy the game's event log
+  into Postgres before it's gone from the live bus for good.
 - **`stop(room_id, reason) -> Room`** — cancels the running game via
   `runner.stop` if one is active; a `KeyError` (never started, or already
   stopped) is swallowed. Always sets `status="stopped"`, `finished_at=now`:

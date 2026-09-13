@@ -1,17 +1,27 @@
 """Visibility + own-seat resolution for a room event subscription (docs/rooms.md).
 
-The websocket/SSE transport (Phase 8/10) calls this once per subscribe to
+``subscription_guard`` itself talks to neither the database nor the bus --
+the HTTP transport (Phase 8's polling routes, Phase 9's archived-history
+routes, a future push transport) calls it once per subscribe/request to
 build the ``Subscriber`` that ``app.events.filter_for_subscriber`` then
-checks per event; nothing here talks to the database or the bus itself.
+checks per event. ``resolve_subscriber`` below is the thin HTTP-layer
+wrapper both `app/api/routes/rooms.py` and `app/api/routes/games.py` share,
+so every route that gates on room admission gets the same 404-on-denial
+behavior from one place.
 """
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
 
-from app.authz import P
+from fastapi import HTTPException, Request
+from sqlmodel import Session
+
+from app.authz import P, current_permissions
 from app.events import Subscriber
 from app.models import Room, RoomSeat, User
+from app.rooms.service import RoomService
 
 
 def subscription_guard(
@@ -60,3 +70,24 @@ def subscription_guard(
     if not allowed:
         return None
     return Subscriber(kind="player", seat=seat_number)
+
+
+def resolve_subscriber(
+    service: RoomService,
+    session: Session,
+    request: Request,
+    user: User,
+    room_id: uuid.UUID,
+) -> Subscriber:
+    """Fetches the room, computes the caller's permissions, and runs
+    ``subscription_guard`` -- raising 404 for an unknown room *or* a denied
+    subscription, so a private room's existence is never leaked either way."""
+    try:
+        room = service.get(room_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Room not found") from None
+    perms = current_permissions(request, session, user, room_id)
+    subscriber = subscription_guard(room, service.seats(room_id), user, perms)
+    if subscriber is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+    return subscriber

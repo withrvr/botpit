@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.routes import (
     admin,
+    games,
     health,
     items,
     login,
@@ -23,6 +24,7 @@ api_router.include_router(roles.router)
 api_router.include_router(admin.router)
 api_router.include_router(admin.me_router)
 api_router.include_router(rooms.router)
+api_router.include_router(games.router)
 
 
 if settings.FASTAPI_ENV == "development":

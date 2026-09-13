@@ -21,7 +21,7 @@ from pydantic import BaseModel, field_validator
 from app.api.deps import CurrentUser, JoinQueueDep, RoomServiceDep, SessionDep
 from app.authz import P, current_permissions, require_permission
 from app.core.config import settings
-from app.events import Subscriber, filter_for_subscriber
+from app.events import filter_for_subscriber
 from app.games import get_game
 from app.games.move_schema import move_json_schema
 from app.models import (
@@ -35,7 +35,7 @@ from app.models import (
     User,
 )
 from app.ratelimit import rate_limit_from_setting
-from app.rooms.guard import subscription_guard
+from app.rooms.guard import resolve_subscriber
 from app.rooms.service import (
     NotSeatedError,
     NotYourTurnError,
@@ -291,26 +291,6 @@ async def room_queue(
 # is used here for the first time by a real transport.
 
 
-def _subscriber_for(
-    service: RoomServiceDep,
-    session: SessionDep,
-    request: Request,
-    user: User,
-    room_id: uuid.UUID,
-) -> Subscriber:
-    try:
-        room = service.get(room_id)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Room not found") from None
-    perms = current_permissions(request, session, user, room_id)
-    subscriber = subscription_guard(room, service.seats(room_id), user, perms)
-    if subscriber is None:
-        # Never distinguish "private"/denied from "does not exist" (matches
-        # get_room's own rule).
-        raise HTTPException(status_code=404, detail="Room not found")
-    return subscriber
-
-
 @router.get("/{room_id}/view")
 def room_view(*, service: RoomServiceDep, user: CurrentUser, room_id: uuid.UUID) -> Any:
     """The caller's own current ``PlayerView`` of the live game. Always the
@@ -385,7 +365,7 @@ def moves_schema(
     ``POST /moves`` body. Gated identically to ``GET /events``/``GET
     /{room_id}`` -- it reveals nothing beyond the game type those already
     show."""
-    _subscriber_for(service, session, request, user, room_id)
+    resolve_subscriber(service, session, request, user, room_id)
     room = service.get(room_id)
     return move_json_schema(get_game(room.game))
 
@@ -407,7 +387,7 @@ async def room_events(
     ``subscription_guard`` resolves for this caller -- a player sees public
     events plus their own seat's; nobody sees another seat's without
     ``room:view_seat_detail``."""
-    subscriber = _subscriber_for(service, session, request, user, room_id)
+    subscriber = resolve_subscriber(service, session, request, user, room_id)
     events = await service.bus.history(str(room_id), since=since, limit=limit)
     visible = [e for e in events if filter_for_subscriber(e, subscriber) is not None]
     return {
