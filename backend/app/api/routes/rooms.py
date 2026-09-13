@@ -1,0 +1,248 @@
+"""Room lifecycle HTTP surface (docs/rooms.md).
+
+Sync ``def`` routes do DB-only work (Starlette threadpools them); routes that
+touch the join queue or ``GameRunner`` (join, start, force-start, stop, queue
+position) are ``async def`` so they can ``await`` those calls directly.
+``CapacityExceededError`` is not caught here: it is registered on the app
+(``app.main``) as a global exception handler, same as ``RateLimited``.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Sequence
+from typing import Any, Literal, cast
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+from app.api.deps import CurrentUser, JoinQueueDep, RoomServiceDep, SessionDep
+from app.authz import P, current_permissions, require_permission
+from app.core.config import settings
+from app.models import (
+    Message,
+    Room,
+    RoomCreate,
+    RoomPublic,
+    RoomSeat,
+    RoomSeatPublic,
+    RoomsPublic,
+    User,
+)
+from app.ratelimit import rate_limit_from_setting
+from app.rooms.service import RoomFullError, RoomNotWaitingError
+
+router = APIRouter(prefix="/rooms", tags=["rooms"])
+
+
+class RoomJoinRequest(BaseModel):
+    code: str
+
+
+def _seat_public(s: RoomSeat) -> RoomSeatPublic:
+    return RoomSeatPublic(
+        id=s.id,
+        seat=s.seat,
+        status=s.status,
+        kind=cast('Literal["human", "agent"]', s.kind),
+        user_id=s.user_id,
+        invited_user_id=s.invited_user_id,
+        model=s.model,
+        persona=s.persona,
+    )
+
+
+def _room_public(room: Room, seats: Sequence[RoomSeat]) -> RoomPublic:
+    return RoomPublic(
+        id=room.id,
+        code=room.code,
+        game=room.game,
+        seat_count=room.seat_count,
+        status=room.status,
+        visibility=room.visibility,
+        creator_id=room.creator_id,
+        created_at=room.created_at,
+        started_at=room.started_at,
+        finished_at=room.finished_at,
+        seats=[_seat_public(s) for s in seats],
+    )
+
+
+def _may_operate(room: Room, user: User, perms: frozenset[str]) -> bool:
+    """Creator or a room-scoped/global holder of ``room:force_stop``."""
+    return room.creator_id == user.id or P.ROOM_FORCE_STOP in perms
+
+
+@router.post(
+    "/",
+    response_model=RoomPublic,
+    dependencies=[
+        Depends(rate_limit_from_setting("room:create", settings.RATE_LIMIT_ROOM_CREATE))
+    ],
+)
+async def create_room(
+    *,
+    service: RoomServiceDep,
+    body: RoomCreate,
+    user: User = Depends(require_permission(P.ROOM_CREATE)),
+) -> Any:
+    try:
+        room = await service.create(user, body)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _room_public(room, service.seats(room.id))
+
+
+@router.get(
+    "/",
+    response_model=RoomsPublic,
+    dependencies=[Depends(require_permission(P.ROOM_VIEW_PUBLIC))],
+)
+def list_rooms(*, service: RoomServiceDep, skip: int = 0, limit: int = 100) -> Any:
+    rooms, count = service.list_public(limit=limit, offset=skip)
+    return RoomsPublic(
+        data=[_room_public(r, service.seats(r.id)) for r in rooms], count=count
+    )
+
+
+@router.get("/{room_id}", response_model=RoomPublic)
+def get_room(
+    *,
+    service: RoomServiceDep,
+    session: SessionDep,
+    request: Request,
+    user: CurrentUser,
+    room_id: uuid.UUID,
+) -> Any:
+    try:
+        room = service.get(room_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Room not found")
+    seats = service.seats(room_id)
+    perms = current_permissions(request, session, user, room_id)
+    seated = any(s.user_id == user.id for s in seats)
+    allowed = (
+        P.ROOM_VIEW_SEAT_DETAIL in perms
+        or room.creator_id == user.id
+        or seated
+        or (room.visibility == "public" and P.ROOM_VIEW_PUBLIC in perms)
+    )
+    if not allowed:
+        # Never distinguish "private" from "does not exist": both 404.
+        raise HTTPException(status_code=404, detail="Room not found")
+    return _room_public(room, seats)
+
+
+@router.post(
+    "/join",
+    dependencies=[
+        Depends(rate_limit_from_setting("room:join", settings.RATE_LIMIT_ROOM_JOIN))
+    ],
+)
+async def join_room(
+    *,
+    service: RoomServiceDep,
+    queue: JoinQueueDep,
+    body: RoomJoinRequest,
+    user: User = Depends(require_permission(P.ROOM_JOIN)),
+) -> Any:
+    try:
+        seat = await service.join_by_code(user, body.code)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Room not found")
+    except RoomNotWaitingError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except RoomFullError as exc:
+        status = await queue.snapshot(f"room:{exc.room_id}", str(user.id))
+        return JSONResponse(
+            {"detail": str(exc), "queue": status.model_dump()}, status_code=409
+        )
+    return _seat_public(seat)
+
+
+@router.post("/{room_id}/leave", response_model=Message)
+def leave_room(
+    *, service: RoomServiceDep, user: CurrentUser, room_id: uuid.UUID
+) -> Any:
+    try:
+        service.leave(user, room_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Room not found")
+    return Message(message="left")
+
+
+@router.post("/{room_id}/start", response_model=RoomPublic)
+async def start_room(
+    *,
+    service: RoomServiceDep,
+    session: SessionDep,
+    request: Request,
+    user: CurrentUser,
+    room_id: uuid.UUID,
+) -> Any:
+    try:
+        room = service.get(room_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Room not found")
+    perms = current_permissions(request, session, user, room_id)
+    if not _may_operate(room, user, perms):
+        raise HTTPException(
+            status_code=403, detail=f"missing permission: {P.ROOM_FORCE_STOP}"
+        )
+    try:
+        room = await service.start(room_id)
+    except (RoomNotWaitingError, RoomFullError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return _room_public(room, service.seats(room_id))
+
+
+@router.post("/{room_id}/force-start", response_model=RoomPublic)
+async def force_start_room(
+    *,
+    service: RoomServiceDep,
+    session: SessionDep,
+    request: Request,
+    user: CurrentUser,
+    room_id: uuid.UUID,
+) -> Any:
+    try:
+        room = service.get(room_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Room not found")
+    perms = current_permissions(request, session, user, room_id)
+    if not _may_operate(room, user, perms):
+        raise HTTPException(
+            status_code=403, detail=f"missing permission: {P.ROOM_FORCE_STOP}"
+        )
+    try:
+        room = await service.force_start(user, room_id)
+    except (RoomNotWaitingError, RoomFullError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return _room_public(room, service.seats(room_id))
+
+
+@router.post("/{room_id}/stop", response_model=RoomPublic)
+async def stop_room(
+    *,
+    service: RoomServiceDep,
+    room_id: uuid.UUID,
+    _user: User = Depends(
+        require_permission(P.ROOM_FORCE_STOP, room_id_param="room_id")
+    ),
+) -> Any:
+    try:
+        room = await service.stop(room_id, reason="stopped by moderator")
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Room not found")
+    return _room_public(room, service.seats(room_id))
+
+
+@router.get("/{room_id}/queue")
+async def room_queue(
+    *, queue: JoinQueueDep, user: CurrentUser, room_id: uuid.UUID
+) -> Any:
+    status = await queue.snapshot(f"room:{room_id}", str(user.id))
+    if status.position is None:
+        raise HTTPException(status_code=404, detail="not queued")
+    return status

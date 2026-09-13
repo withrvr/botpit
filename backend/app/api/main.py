@@ -7,6 +7,7 @@ from app.api.routes import (
     login,
     private,
     roles,
+    rooms,
     users,
     utils,
 )
@@ -21,6 +22,7 @@ api_router.include_router(health.router)
 api_router.include_router(roles.router)
 api_router.include_router(admin.router)
 api_router.include_router(admin.me_router)
+api_router.include_router(rooms.router)
 
 
 if settings.FASTAPI_ENV == "development":

@@ -33,7 +33,7 @@ branch; only the phase branch opens a PR into `master`.
 | 4 | Privacy gate, prompt builder, human redaction | done 2026-09-12 (PR #10) |
 | 5 | Agent client, swappable backend | done 2026-09-12 (PR #10) |
 | 6 | Auth, accounts, roles/permissions | done 2026-09-12 (branch phase-6-auth, PR pending) |
-| 7 | Rooms, seats, capacity, join queue | next (data layer + Redis primitives already merged in Phase 6) |
+| 7 | Rooms, seats, capacity, join queue | done 2026-09-13 (branch phase-7-rooms) |
 | 8 | First live mixed game (terminal + API) | |
 | 9 | Persistence and replay | |
 | 10 | Frontend: play, spectate, admin, focus view | |
@@ -43,6 +43,47 @@ branch; only the phase branch opens a PR into `master`.
 | 14 | CI/CD (local dry-run; no server yet) | |
 | 15 | Production deployment (deferred until local complete) | |
 | 16 | Scale and polish | |
+
+## Phase 7 — done 2026-09-13 (branch phase-7-rooms)
+
+Everything PROGRESS.md's Phase 6 note said Phase 7 still needed: `RoomService`,
+HTTP routes, `SubscriptionGuard`, `GameRunner`/`ModelRegistry` lifespan wiring.
+
+- `app/rooms/service.py`: `RoomService` (`create`, `get`, `list_public`,
+  `join_by_code`, `leave`, `force_start`, `start`, `stop`, `capacity_check`)
+  and its exceptions (`RoomError`, `RoomFullError`, `RoomNotWaitingError`,
+  `CapacityExceededError`). `start`/`force_start` assemble and run a *real*
+  live game: a real `Referee` via `GameRunner.start`, real `HumanController`s
+  (unfed — Phase 8 adds `submit_move`), real `AgentController`s backed by the
+  real `ModelRegistry`. `create` grants the creator room-scoped `moderator`
+  and publishes `RoomCreated`; `join_by_code` publishes `SeatFilled`.
+- `app/rooms/guard.py`: `subscription_guard` — visibility + own-seat
+  resolution for the (not-yet-built) websocket/SSE transport, table-tested
+  now against every combination in its own docstring.
+- `app/api/routes/rooms.py`: `POST /`, `GET /`, `GET /{room_id}`, `POST
+  /join`, `POST /{room_id}/leave`, `POST|/{room_id}/start`,
+  `/force-start`, `/stop`, `GET /{room_id}/queue`. `CapacityExceededError`
+  registered as a global exception handler (429, same pattern as
+  `RateLimited`); a private room's existence is never leaked (403 vs 404).
+- `app/main.py`: `app.state.runner` (`GameRunner`) and
+  `app.state.model_registry` (`ModelRegistry`) created after the event bus
+  in the lifespan, torn down in the order runner -> registry -> bus.
+- Judgment calls made where the build brief left the sync/async split open
+  (documented in `docs/rooms.md` and in code comments): `create`,
+  `join_by_code`, `force_start`, `capacity_check` ended up `async def` (they
+  publish events / await the join queue / call another async method) even
+  though the brief's illustrative signatures showed some of them as plain
+  `def`; `get`, `list_public`, `leave`, `seats` stayed sync.
+- Deferred, precisely (not silently): the move-submission endpoint
+  (`GameRunner.submit_move`) and any websocket/SSE transport are Phase 8's
+  job per the build brief. The join queue's `enqueue`/`offer_next` are not
+  wired into `create`/`join_by_code`/`leave` in this phase — `capacity_check`
+  and the `/join` 409 body only *read* `queue.snapshot`; nobody actually
+  waits in line yet (see `docs/rooms.md` "Left for later").
+- Tests: `tests/rooms/{test_room_service,test_rooms_api,test_guard}.py`, 50
+  new tests (12 guard, 25 service, 13 HTTP), all passing against real
+  Postgres + Redis. Full suite: 705 tests, ruff/ruff-format/mypy
+  strict/ty/prek all clean.
 
 ## Phase 2 — done pending PR review
 
