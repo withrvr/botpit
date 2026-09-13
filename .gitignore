@@ -9,6 +9,7 @@ backend/app/frontend/
 # botpit additions
 .env.staging
 .env.production
+packages/react-email/.react-email/
 *.local
 data/*
 !data/.gitkeep

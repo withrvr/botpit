@@ -36,7 +36,8 @@ branch; only the phase branch opens a PR into `master`.
 | 7 | Rooms, seats, capacity, join queue | done 2026-09-13 (PR #12) |
 | 8 | First live mixed game (terminal + API) | done 2026-09-13 (PR #13) |
 | 9 | Persistence and replay | done 2026-09-13 (PR #14) |
-| 9.5 | Stabilize, document, rebrand | done 2026-09-13 (branch phase-9.5-stabilize-and-rebrand, PR pending) |
+| 9.5 | Stabilize, document, rebrand | done 2026-09-13 (PR #15) |
+| 9.6 | Upgrade to latest stable versions | done 2026-09-13 (branch phase-9.6-dependency-upgrade, PR pending) |
 | 10 | Frontend: play, spectate, admin, focus view | |
 | 11 | Chat and personas | |
 | 12 | Leaderboard | |
@@ -446,6 +447,65 @@ the three genuinely independent pieces per the brief.
 - Full gate after every merge in this phase: `ruff check`/`mypy app`/
   `ty check app` clean, backend suite 753 tests green, frontend
   `bun run build`/`bun run lint` clean, `prek run --all-files` clean.
+
+## Phase 9.6 — done 2026-09-13 (branch phase-9.6-dependency-upgrade)
+
+One job: every dependency onto its true latest stable version, verified,
+falling back only where genuinely broken with the reason documented. Full
+detail: `docs/development/dependency-audit.md`.
+
+- Backend: `uv lock --upgrade` picked up the small remainder Phase 9.5
+  left (`ast-serialize`, `coverage`, `pydantic-core` patches); raised two
+  `pyproject.toml` floors (`redis[hiredis]` to `>=8.1.0`,
+  `psycopg[binary]` to `>=3.3.5,<4.0.0`) to close Dependabot PRs #8/#9 for
+  real. `pydantic-core` 2.49.0 exists but `pydantic` 2.13.5 (itself the
+  true latest) doesn't request it yet -- not a gap, verified against PyPI
+  directly.
+- Frontend: attempted every deferral Phase 9.5 left, per this phase's
+  "actually try the real fix" mandate.
+  - `axios` (1.18.0 -> 1.20.0) and `@hey-api/openapi-ts` (0.97.3 -> 0.99.0)
+    upgraded clean.
+  - `@tanstack/react-table` v8 -> v9 (confirmed genuinely GA, not still
+    beta, via a live check before touching it): a real migration, not a
+    version bump -- `useReactTable`/`getCoreRowModel`/
+    `getPaginationRowModel` -> `useTable`/`tableFeatures`/
+    `createPaginatedRowModel`, `table.getState()` -> `table.state`,
+    `row.getVisibleCells()` -> `row.getAllCells()`, `ColumnDef` gains a
+    leading `TFeatures` param. Migrated `DataTable.tsx` and its two
+    consumers (`Admin/columns.tsx`, `Items/columns.tsx`); verified via
+    build, lint, and starting the dev server to exercise
+    `@tanstack/router-plugin`'s live route generation under the new types.
+  - `react-email`/`@react-email/ui` in `packages/react-email/` (the
+    `emails` workspace member) bumped to true latest 6.9.5 -- found via a
+    Dependabot PR mentioning packages neither this nor the Phase 9.5 audit
+    had looked at. Verified via `bun run --filter emails export`
+    producing byte-identical HTML to the already-committed
+    `backend/app/email-templates/*.html`.
+  - `typescript` v6 -> v7 **attempted, then reverted**: 7.0.2 builds,
+    lints, and runs the dev server fine on its own, but
+    `@hey-api/openapi-ts` 0.99.0 crashes under it
+    (`Cannot read properties of undefined (reading 'AnyKeyword')`) --
+    confirmed as a currently-open upstream bug
+    (`hey-api/hey-api#4235`), not fixable here. Reverted to `^6.0.3`.
+    This is the one genuine "latest is broken, fall back and document"
+    case this phase hit.
+- Docker/CI: confirmed via live checks that `postgres:18`/`redis:8-alpine`
+  are still each technology's current major (PostgreSQL 19 is in beta,
+  not shipped stable); bumped `zizmorcore/zizmor-action` to v0.6.3 (PR
+  #5's exact target). Found, flagged, not fixed (out of scope for a
+  version-only phase, and `.github/workflows/*` is a standing Phase-14
+  deferral): `zizmor.yml`'s `advanced-security` gate still checks
+  `github.repository_owner == 'fastapi'`, a leftover template-org check.
+- Housekeeping found while verifying: `packages/react-email/.react-email/`
+  (that package's build cache) had no `.gitignore` entry anywhere in the
+  repo -- added one.
+- Dependabot reconciliation: closed all 5 open PRs (#4, #5, #8, #9, #16),
+  each with a comment pointing at the commit that superseded it -- every
+  one covered at the same or a truer-latest version except `typescript`
+  (documented exception above, not a security advisory).
+- Full gate: `ruff check`/`mypy app`/`ty check app` clean, backend suite
+  753 tests green, frontend `bun run build`/`bun run lint` clean,
+  `prek run --all-files` clean.
 
 ## Phase 2 — done pending PR review
 
