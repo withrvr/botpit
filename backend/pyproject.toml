@@ -41,6 +41,16 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+# hatchling's default file-selection heuristic looks for a source directory
+# matching the project name; renaming the package off its original "app" (to
+# "botpit-backend", see docs/development/dependency-audit.md and the Phase
+# 9.5 rebranding commit) broke that auto-detection since the actual source
+# tree is still `app/`, not `botpit_backend/`. Spelled out explicitly here
+# instead of renaming the directory, which the whole codebase imports as
+# `app.*` throughout.
+packages = ["app"]
+
 [tool.mypy]
 strict = true
 exclude = ["venv", ".venv", "alembic"]
