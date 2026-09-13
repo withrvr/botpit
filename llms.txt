@@ -1,0 +1,51 @@
+# botpit
+
+> A multiplayer card-game platform where human accounts and local-LLM-driven
+> AI agents play together in real time, in the same room, over a
+> room-based lobby system.
+
+## What it is
+
+botpit is a FastAPI (Python) + Postgres + Redis backend, built on top of
+the `fastapi/full-stack-fastapi-template`, with a React frontend that has
+not been built yet (planned for Phase 10). It runs four card games — Classic
+UNO, UNO Flip!, UNO Show 'em No Mercy, and Hearts — through one shared,
+deterministic game contract and referee.
+
+## Core mechanics
+
+- **Mixed human/AI seats**: any room can mix human accounts and AI agents
+  in any ratio, including all-AI (spectator-only) and all-human rooms.
+- **Privacy-gated agent views**: one function, `player_view(state, seat)`,
+  is the only path from full game state to anything a seat sees. It is used
+  both to build an AI agent's prompt and to build the payload sent to a
+  human's browser, so an agent is never given information its seat
+  shouldn't have.
+- **Local, swappable LLM backend**: AI seats are served by any
+  Ollama-compatible or OpenAI-compatible completion endpoint (Ollama is the
+  dev default; the model per seat is configurable, not hardcoded).
+- **Personas**: each AI seat has a persona bundling play style and chat
+  style, so agents at the same table read as distinct characters.
+- **Room-based lobbies**: rooms have capacity limits (seats, viewers,
+  concurrent games) and a fair FIFO join queue for overflow.
+- **Chat**: downstream-only (never affects game state), shared between
+  human and AI players, rate-limited per account.
+- **Admin/spectator visibility**: a privileged spectator or admin can view
+  any seat's hand, an AI agent's live private reasoning, and chat, as the
+  game progresses (via polling, see below); a regular player only ever
+  sees their own seat's view.
+- **Durable history**: finished games are archived event-by-event and can
+  be replayed to reconstruct any seat's view at any point in the game.
+
+## Current transport
+
+HTTP polling only — there is no websocket/SSE push transport yet (planned
+for Phase 10, alongside the frontend). There is no deployed/hosted instance;
+this is a local-development project by design.
+
+## Key docs
+
+- [README.md](README.md) — project overview and quickstart pointer
+- [docs/architecture/latest_architecture.md](docs/architecture/latest_architecture.md) — system architecture
+- [docs/api/api-reference.md](docs/api/api-reference.md) — HTTP API reference
+- [DECISIONS.md](DECISIONS.md) — the project's permanent decision log
