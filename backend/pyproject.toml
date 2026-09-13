@@ -1,7 +1,7 @@
 [project]
-name = "app"
+name = "botpit-backend"
 version = "0.1.0"
-description = ""
+description = "FastAPI backend for botpit: room lifecycle, the deterministic game referee, the LLM agent client, and the live-play/game-history API."
 requires-python = ">=3.14,<4.0"
 dependencies = [
     "fastapi[standard]>=0.141.1,<1.0.0",
