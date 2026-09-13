@@ -120,7 +120,7 @@ caller (the room's creator, or a holder of `room:view_seat_detail`);
 | `GET /rooms/` | `room:view_public` | `skip`, `limit` query | `RoomsPublic` — `visibility="public"` only, seat identity always redacted | — |
 | `GET /rooms/{room_id}` | Bearer | — | `RoomPublic`, seat identity redacted unless privileged/own seat | `404` for both "does not exist" and "exists but denied" (never distinguished) |
 | `POST /rooms/join` | `room:join` + rate limit (`RATE_LIMIT_ROOM_JOIN`, default `20/60`) | `RoomJoinRequest {code}` | caller's own `RoomSeatPublic` | `404` unknown code, `409` room not waiting, `409` room full (body includes `queue: {position, length, eta_seconds}`) |
-| `POST /rooms/{room_id}/leave` | Bearer | — | `Message` | always `200` (no-op if not seated) |
+| `POST /rooms/{room_id}/leave` | Bearer | — | `Message` | `404` unknown room; otherwise always `200` (no-op if not seated) |
 | `POST /rooms/{room_id}/start` | creator or `room:force_stop` | — | `RoomPublic` | `403` not permitted, `404` unknown room, `409` not waiting / full |
 | `POST /rooms/{room_id}/force-start` | same as `start` | — | `RoomPublic` — backfills open human seats to agent seats first | same as `start` |
 | `POST /rooms/{room_id}/stop` | `room:force_stop` for the room (no creator bypass) | — | `RoomPublic` | `404` unknown room |
