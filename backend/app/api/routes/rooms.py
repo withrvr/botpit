@@ -9,13 +9,14 @@ position) are ``async def`` so they can ``await`` those calls directly.
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Sequence
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.api.deps import CurrentUser, JoinQueueDep, RoomServiceDep, SessionDep
 from app.authz import P, current_permissions, require_permission
@@ -325,11 +326,28 @@ def room_view(*, service: RoomServiceDep, user: CurrentUser, room_id: uuid.UUID)
         raise HTTPException(status_code=409, detail=str(exc))
 
 
+_MAX_MOVE_BYTES = 4096  # generous for any legal move dict (card index, color, ...)
+
+
 class MoveSubmission(BaseModel):
     move: dict[str, Any]
 
+    @field_validator("move")
+    @classmethod
+    def _bounded(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if len(json.dumps(value)) > _MAX_MOVE_BYTES:
+            msg = f"move body exceeds {_MAX_MOVE_BYTES} bytes"
+            raise ValueError(msg)
+        return value
 
-@router.post("/{room_id}/moves", response_model=Message)
+
+@router.post(
+    "/{room_id}/moves",
+    response_model=Message,
+    dependencies=[
+        Depends(rate_limit_from_setting("room:move", settings.RATE_LIMIT_ROOM_MOVE))
+    ],
+)
 def submit_move(
     *,
     service: RoomServiceDep,
@@ -380,7 +398,7 @@ async def room_events(
     request: Request,
     user: CurrentUser,
     room_id: uuid.UUID,
-    since: str | None = None,
+    since: Annotated[str | None, Query(pattern=r"^\d+-\d+$")] = None,
     limit: int = 200,
 ) -> Any:
     """Poll the room's event stream from ``since`` (an event's own

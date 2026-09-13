@@ -96,6 +96,14 @@ class GameRunner:
         except Exception:  # a game/controller bug ended the room; still report it
             outcome = "stopped"
         self._watchers.pop(room_id, None)
+        # Without this, `get()`/`submit_move()` keep finding this room's dead
+        # game forever: `current_seat` on a terminal state is often stable
+        # (or `None`, which trivially fails a `!=` turn check), so a move
+        # submitted after the game ends can look "accepted" with nobody left
+        # to read it, and `/view` never falls back to a 409. Also a
+        # per-room memory leak (RunningGame holds the referee, controllers,
+        # and final state for the process's lifetime).
+        self._games.pop(room_id, None)
         with contextlib.suppress(Exception):
             await on_finished(room_id, outcome)
 

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from app.events import InMemoryEventBus
 from app.games import get_game
 from app.referee import GameRunner, PolicyController, SeatSpec
@@ -43,6 +45,9 @@ async def test_on_finished_fires_with_finished_when_the_game_ends_on_its_own() -
 
     assert outcomes == [("r1", "finished")]
     assert "r1" not in runner._watchers
+    # Review fix: a finished game's entry must not linger in `_games` --
+    # otherwise `get()`/`submit_move()` keep finding a dead game forever.
+    assert "r1" not in runner._games
 
 
 async def test_on_finished_fires_with_stopped_when_cancelled() -> None:
@@ -69,6 +74,38 @@ async def test_on_finished_fires_with_stopped_when_cancelled() -> None:
         await asyncio.sleep(0.01)
 
     assert outcomes == [("r2", "stopped")]
+    assert "r2" not in runner._games
+
+
+async def test_get_and_submit_move_404_after_a_game_ends() -> None:
+    """End-to-end proof of the eviction fix: once a game is gone, callers get
+    the normal ``KeyError`` (-> 404/409 at the HTTP layer), not a stale
+    ``RunningGame`` from a dead task."""
+    game = get_game("hearts")
+    n = game.min_seats
+    runner = GameRunner(InMemoryEventBus(maxlen=10_000))
+
+    async def on_finished(room_id: str, outcome: str) -> None:
+        pass
+
+    runner.start(
+        "r5",
+        "hearts",
+        1,
+        _specs(n),
+        {i: PolicyController() for i in range(n)},
+        on_finished=on_finished,
+    )
+    await runner.stop("r5", "test cleanup")
+    for _ in range(50):
+        if "r5" not in runner._games:
+            break
+        await asyncio.sleep(0.01)
+
+    with pytest.raises(KeyError):
+        runner.get("r5")
+    with pytest.raises(KeyError):
+        runner.submit_move("r5", 0, {"kind": "draw"})
 
 
 async def test_close_waits_for_every_watcher_before_returning() -> None:

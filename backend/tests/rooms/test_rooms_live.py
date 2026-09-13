@@ -248,6 +248,60 @@ def test_events_never_leaks_another_seats_view_to_a_non_privileged_player(
     assert all(e["payload"]["seat"] == 0 for e in view_events)
 
 
+# -- security review fixes ---------------------------------------------
+
+
+def test_oversized_move_body_is_422(client: TestClient, live_game: LiveGame) -> None:
+    """Review fix: an unbounded ``move`` dict could grow ``HumanController``'s
+    queue without limit; the body itself is now size-capped at the route."""
+    room_id, seats = live_game
+    view = client.get(f"{API}/rooms/{room_id}/view", headers=seats[0]).json()
+    current = view["current_seat"]
+    huge_move = {"padding": "x" * 10_000}
+
+    r = client.post(
+        f"{API}/rooms/{room_id}/moves",
+        headers=seats[current],
+        json={"move": huge_move},
+    )
+    assert r.status_code == 422
+
+
+def test_malformed_since_on_events_is_a_client_error_not_a_500(
+    client: TestClient, live_game: LiveGame
+) -> None:
+    """Review fix: an unparsable ``since`` used to reach ``int(since...)``
+    unguarded and blow up as a 500; it is now a validated query parameter."""
+    room_id, seats = live_game
+    r = client.get(
+        f"{API}/rooms/{room_id}/events",
+        headers=seats[0],
+        params={"since": "not-a-cursor"},
+    )
+    assert r.status_code == 422
+
+
+def test_moves_are_rate_limited(client: TestClient, live_game: LiveGame) -> None:
+    """Review fix: ``POST /moves`` had no rate limit at all, unlike every
+    other mutation route (create, join)."""
+    room_id, seats = live_game
+    view = client.get(f"{API}/rooms/{room_id}/view", headers=seats[0]).json()
+    current = view["current_seat"]
+    headers = seats[current]
+
+    statuses = []
+    for _ in range(40):
+        r = client.post(
+            f"{API}/rooms/{room_id}/moves",
+            headers=headers,
+            json={"move": {"kind": "draw"}},
+        )
+        statuses.append(r.status_code)
+        if r.status_code == 429:
+            break
+    assert 429 in statuses
+
+
 def test_events_privileged_creator_sees_every_seats_view(
     client: TestClient, live_game: LiveGame, superuser_token_headers: dict[str, str]
 ) -> None:

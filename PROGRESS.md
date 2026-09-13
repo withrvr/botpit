@@ -178,6 +178,55 @@ stays Phase 10's job) — this is the first real caller of Phase 7's
   both. Full suite: 731 tests, ruff/ruff-format/mypy strict/ty/prek all
   clean.
 
+### Review fixes (two independent reviews: correctness/concurrency, security)
+
+- **`GameRunner` never evicted a finished game** (HIGH, correctness): a
+  naturally-finished or stopped room's `RunningGame` stayed in `_games`
+  forever, so `GET /view`/`POST /moves` kept finding a dead game instead of
+  ever raising `RoomNotRunningError` -- a move submitted after the game
+  ended could look "accepted" (200) with nobody left to read it. Also a
+  per-room memory leak. Fixed at the one place that knows a game truly
+  ended: `GameRunner._watch` now pops `self._games[room_id]` alongside the
+  existing watcher cleanup, so `get()`'s already-correct `KeyError` path
+  (used by every caller) actually fires. Regression tests:
+  `tests/unit/referee/test_runner.py` asserts `_games` eviction after both
+  a natural finish and a `stop()`, plus a new end-to-end test proving
+  `get`/`submit_move` raise `KeyError` once a game is gone.
+- **Cross-thread `asyncio.Queue.put_nowait`** (HIGH, both reviews): `POST
+  /moves` is a sync route (Starlette threadpool thread) calling
+  `HumanController.submit`, which the referee's `decide()` concurrently
+  awaits on the event-loop thread -- `asyncio.Queue` is documented safe only
+  for same-thread use or `call_soon_threadsafe`. Fixed: `HumanController`
+  captures its loop at construction (always on the loop thread, inside
+  `RoomService.start`) and `submit` now marshals through
+  `loop.call_soon_threadsafe`.
+- **Unbounded move queue** (CRITICAL, security): nothing capped how many
+  or how large the dicts a client could pile into `HumanController`'s queue
+  before the referee drained one, and `POST /moves` had no rate limit at
+  all (unlike `POST /`/`POST /join`). Fixed three ways: `HumanController`'s
+  queue is now `maxsize=1` with replace-not-grow semantics (the latest
+  submission always wins over one not yet consumed -- only one is ever
+  meaningful); `MoveSubmission.move` is size-capped at 4096 bytes
+  (a `field_validator`, -> 422 over the limit); a new
+  `RATE_LIMIT_ROOM_MOVE` setting (30/10s) gates the route the same way
+  `room:create`/`room:join` already are. New tests: `test_seats.py`
+  (queue bound/replace semantics), `test_rooms_live.py` (oversized body ->
+  422, rate limit -> 429).
+- **Unvalidated `since` on `/events`** (MEDIUM, security): a malformed
+  cursor reached `int(since.split("-", 1)[0])` unguarded and 500'd instead
+  of 400ing. Fixed with a query-parameter pattern (`^\d+-\d+$`, matching
+  every cursor this app ever emits) -> 422 on anything else. New test in
+  `test_rooms_live.py`.
+- Reviewed and accepted as-is (no change needed): seat/turn identity is
+  always server-derived (no mass-assignment vector in `MoveSubmission`);
+  `filter_for_subscriber` is applied unconditionally to every event with no
+  bypass path; `/moves/schema` carries no per-seat state; `next_since`
+  advancing past a hidden event is a deliberate, documented tradeoff (the
+  alternative -- never advancing -- would let a caller get stuck polling
+  forever behind an event they can't see).
+- Full suite after fixes: 737 tests, gate clean (two `prek` passes -- the
+  frontend SDK regenerates once for the four new routes, then holds).
+
 ## Phase 2 — done pending PR review
 
 - `botpit.games.base`: `Game[State, Move]` contract, frozen pydantic state,

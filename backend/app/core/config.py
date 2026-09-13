@@ -109,11 +109,13 @@ class Settings(BaseSettings):
     # "count/seconds" per user; parsed to (count, seconds). Dev-generous.
     RATE_LIMIT_ROOM_CREATE: Annotated[tuple[int, int], NoDecode] = (5, 60)
     RATE_LIMIT_ROOM_JOIN: Annotated[tuple[int, int], NoDecode] = (20, 60)
+    RATE_LIMIT_ROOM_MOVE: Annotated[tuple[int, int], NoDecode] = (30, 10)
     RATE_LIMIT_CHAT: Annotated[tuple[int, int], NoDecode] = (10, 10)
 
     @field_validator(
         "RATE_LIMIT_ROOM_CREATE",
         "RATE_LIMIT_ROOM_JOIN",
+        "RATE_LIMIT_ROOM_MOVE",
         "RATE_LIMIT_CHAT",
         mode="before",
     )
