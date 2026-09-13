@@ -8,7 +8,10 @@ from typing import Any
 
 import pytest
 
+from app.agents import AgentController, get_persona
 from app.events import (
+    PRIVILEGED,
+    AgentReasoning,
     EventEnvelope,
     InMemoryEventBus,
     Subscriber,
@@ -16,6 +19,7 @@ from app.events import (
 )
 from app.games import GAME_CATALOG, get_game
 from app.games.base import PlayerView
+from app.llm.fake import FakeLLMClient
 from app.referee import (
     GameRunner,
     HumanController,
@@ -304,3 +308,30 @@ async def test_game_module_error_ends_room_visibly() -> None:
     last = (await collect(bus, "e"))[-1]
     assert last.type == "room.stopped"
     assert last.payload["reason"].startswith("error:")
+
+
+async def test_referee_threads_its_game_id_into_agent_controllers() -> None:
+    """Regression: ``AgentController`` used to publish with no correlation
+    at all, so ``RoomService._archive_game`` (Phase 9) never archived
+    anything an agent seat published -- only the referee's own events."""
+    game = get_game("hearts")
+    n = game.min_seats
+    bus = InMemoryEventBus(maxlen=10_000)
+    agent = AgentController(
+        game,
+        FakeLLMClient(lambda _req: "{}"),
+        "fake",
+        get_persona("steady"),
+        bus,
+        "f",
+        0,
+    )
+    assert agent.game_id is None  # not yet threaded in before the referee exists
+
+    controllers = {0: agent, **{i: PolicyController() for i in range(1, n)}}
+    ref = Referee(game, bus, "f", 1, specs(n), controllers)
+    assert agent.game_id == ref.game_id
+
+    await agent._publish(AgentReasoning(seat=0, model="fake", text="hi"), PRIVILEGED)
+    events = await bus.history("f")
+    assert events[-1].correlation == {"game_id": ref.game_id}

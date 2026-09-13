@@ -399,6 +399,67 @@ class FeatureFlagOverridePublic(SQLModel):
     enabled: bool
 
 
+# --- game history (Phase 9): the durable record a finished game leaves -----
+#
+# DECISIONS.md §12: "the event log is the source of truth; finished games
+# replay from it." `GameRecord` is one row per game a `Referee` ran to
+# completion or cancellation (its id is the referee's own `game_id`);
+# `GameEvent` is a durable copy of that game's event log, independent of
+# however long the live `EventBus` (Redis or in-memory) happens to retain it.
+
+
+class GameRecord(SQLModel, table=True):
+    __tablename__ = "game_record"
+    id: str = Field(primary_key=True, max_length=64)  # Referee.game_id
+    room_id: uuid.UUID = Field(foreign_key="room.id", ondelete="CASCADE", index=True)
+    game: str = Field(max_length=64)
+    seat_count: int
+    seed: int = Field(sa_type=BigInteger)
+    outcome: str = Field(max_length=16)  # "finished" | "stopped"
+    winner_seat: int | None = None
+    ranking: Any = Field(sa_column=Column(JSON, nullable=False))
+    scores: Any = Field(sa_column=Column(JSON, nullable=False))
+    move_count: int
+    started_at: datetime = Field(sa_type=_tz())
+    finished_at: datetime = Field(sa_type=_tz())
+
+
+class GameRecordPublic(SQLModel):
+    id: str
+    room_id: uuid.UUID
+    game: str
+    seat_count: int
+    outcome: str
+    winner_seat: int | None
+    ranking: list[int]
+    scores: list[int]
+    move_count: int
+    started_at: datetime
+    finished_at: datetime
+
+
+class GameEvent(SQLModel, table=True):
+    __tablename__ = "game_event"
+    __table_args__ = (
+        UniqueConstraint("game_id", "seq", name="uq_game_event_game_id_seq"),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    game_id: str = Field(
+        foreign_key="game_record.id", ondelete="CASCADE", index=True, max_length=64
+    )
+    # Denormalized from `game_record.room_id`: lets an admin query "every
+    # archived event for this room" without a join, at the cost of one extra
+    # indexed column -- the same tradeoff `room_role` already makes.
+    room_id: uuid.UUID = Field(foreign_key="room.id", ondelete="CASCADE")
+    seq: int
+    type: str = Field(max_length=32)
+    ts: datetime = Field(sa_type=_tz())
+    visibility: Any = Field(sa_column=Column(JSON, nullable=False))
+    payload: Any = Field(sa_column=Column(JSON, nullable=False))
+    correlation: Any = Field(sa_column=Column(JSON, nullable=False))
+    stream_id: str | None = Field(default=None, max_length=64)
+
+
 class FeatureFlagPublic(SQLModel):
     key: str
     enabled: bool

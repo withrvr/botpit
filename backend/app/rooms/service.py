@@ -34,7 +34,15 @@ from app.authz.service import grant_role
 from app.core.db import engine
 from app.events import PUBLIC, EventBus, RoomCreated, SeatFilled, make_event
 from app.games import Seat, get_game
-from app.models import Room, RoomCreate, RoomSeat, User, get_datetime_utc
+from app.models import (
+    GameEvent,
+    GameRecord,
+    Room,
+    RoomCreate,
+    RoomSeat,
+    User,
+    get_datetime_utc,
+)
 from app.referee import GameRunner, HumanController, SeatController, SeatSpec
 from app.rooms.codes import new_join_code, normalise_code
 from app.rooms.queue import JoinQueue, QueueStatus
@@ -293,6 +301,33 @@ class RoomService:
             ).all()
         )
 
+    # -- game history (Phase 9): the durable record `_archive_game` writes --
+
+    def get_game_record(self, game_id: str) -> GameRecord:
+        record = self.session.get(GameRecord, game_id)
+        if record is None:
+            raise LookupError(f"unknown game: {game_id}")
+        return record
+
+    def list_game_records(self, room_id: uuid.UUID) -> list[GameRecord]:
+        return list(
+            self.session.exec(
+                select(GameRecord)
+                .where(GameRecord.room_id == room_id)
+                .order_by(col(GameRecord.finished_at).desc())
+            ).all()
+        )
+
+    def game_events(
+        self, game_id: str, since: int | None = None, limit: int = 200
+    ) -> list[GameEvent]:
+        query = select(GameEvent).where(GameEvent.game_id == game_id)
+        if since is not None:
+            query = query.where(col(GameEvent.seq) > since)
+        return list(
+            self.session.exec(query.order_by(col(GameEvent.seq)).limit(limit)).all()
+        )
+
     # -- join / leave -----------------------------------------------------
 
     async def join_by_code(self, user: User, code: str) -> RoomSeat:
@@ -513,17 +548,96 @@ class RoomService:
     async def _finish_room(self, room_id: str, outcome: str) -> None:
         """``GameRunner``'s completion callback (``outcome`` is "finished" or
         "stopped"). Runs long after the request that called ``start()`` has
-        ended and its ``Session`` closed, so it opens its own. Only updates a
-        room still "in_progress": an explicit ``stop()`` already wrote
-        "stopped" itself and this must not race or double-write over it.
+        ended and its ``Session`` closed, so it opens its own. Only *writes*
+        a room still "in_progress": ``stop()`` races this exact callback (its
+        own ``await runner.stop(...)`` and this watcher both wake on the same
+        cancelled task), and whichever already wrote "stopped" must not be
+        clobbered or double-written.
+
+        Archiving (below) is NOT inside that guard: this callback fires
+        exactly once per game no matter which side won the status-write
+        race, so archiving must run unconditionally -- nesting it inside the
+        guard would silently skip archiving every time ``stop()`` happened
+        to win, which is exactly the path ``docs/games.md``'s own tests
+        exercise. It is also a separate, best-effort step: the room's
+        lifecycle status must never stay stuck "in_progress" just because
+        archiving hit a DB hiccup -- that would reopen the exact capacity
+        leak Phase 7 fixed, for a much worse reason.
         """
         with Session(engine) as session:
             room = session.get(Room, uuid.UUID(room_id))
-            if room is not None and room.status == "in_progress":
+            if room is None:
+                return
+            if room.status == "in_progress":
                 room.status = outcome
                 room.finished_at = get_datetime_utc()
                 session.add(room)
                 session.commit()
+
+            try:
+                await self._archive_game(session, room, outcome)
+            except Exception:
+                log.exception("failed to archive game history for room %s", room_id)
+
+    async def _archive_game(self, session: Session, room: Room, outcome: str) -> None:
+        """Copies this game's event log from the live ``EventBus`` into
+        ``game_record``/``game_event`` -- the durable record DECISIONS.md §12
+        requires ("the event log is the source of truth"). The live bus
+        (Redis or in-memory) is a transport, not durable storage: this is
+        what survives a Redis flush or an ``InMemoryEventBus`` restart.
+
+        Scoped to events carrying a ``game_id`` correlation, i.e. everything
+        the ``Referee`` published -- ``game.*``/``agent.*``/``chat.*``, and
+        also its own ``room.stopped`` (published on cancellation, still part
+        of this game's run). ``RoomService``'s own lifecycle events
+        (``room.created``, ``room.seat_filled``) carry no ``game_id`` and are
+        excluded -- they already have their own row in ``room``/``room_seat``.
+        """
+        events = await self.bus.history(str(room.id), since=None, limit=100_000)
+        game_events = [e for e in events if e.correlation.get("game_id")]
+        if not game_events:
+            return  # GameRunner always publishes GameStarted first; defensive only
+        game_id = game_events[0].correlation["game_id"]
+
+        started = next((e for e in game_events if e.type == "game.started"), None)
+        finished = next((e for e in game_events if e.type == "game.finished"), None)
+        move_count = sum(1 for e in game_events if e.type == "game.move_applied")
+
+        record = GameRecord(
+            id=game_id,
+            room_id=room.id,
+            game=started.payload["game"] if started else room.game,
+            seat_count=started.payload["seats"] if started else room.seat_count,
+            seed=started.payload["seed"] if started else room.seed,
+            outcome=outcome,
+            winner_seat=finished.payload["winner_seat"] if finished else None,
+            ranking=finished.payload["ranking"] if finished else [],
+            scores=finished.payload["scores"] if finished else [],
+            move_count=move_count,
+            started_at=room.started_at or room.created_at,
+            finished_at=room.finished_at or get_datetime_utc(),
+        )
+        session.add(record)
+        # Explicit, not left to the flush planner's dependency sort: forces
+        # `game_record` to exist before the FK-referencing `game_event` rows
+        # below, in the same transaction (a failure past this point rolls
+        # back the whole archive, never an orphaned summary with no events).
+        session.flush()
+        for e in game_events:
+            session.add(
+                GameEvent(
+                    game_id=game_id,
+                    room_id=room.id,
+                    seq=e.seq if e.seq is not None else 0,
+                    type=e.type,
+                    ts=e.ts,
+                    visibility=e.visibility.model_dump(mode="json"),
+                    payload=e.payload,
+                    correlation=e.correlation,
+                    stream_id=e.stream_id,
+                )
+            )
+        session.commit()
 
     async def stop(self, room_id: uuid.UUID, reason: str) -> Room:
         room = self.get(room_id)

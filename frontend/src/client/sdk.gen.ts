@@ -2,7 +2,7 @@
 
 import { type Client, type Options as Options2, type TDataShape, urlSearchParamsBodySerializer } from './client';
 import { client } from './client.gen';
-import type { adminCreateOverrideData, adminCreateOverrideErrors, adminCreateOverrideResponses, adminReadFlagsData, adminReadFlagsResponses, adminReadSettingsData, adminReadSettingsResponses, adminRemoveOverrideData, adminRemoveOverrideErrors, adminRemoveOverrideResponses, adminUpdateFlagData, adminUpdateFlagErrors, adminUpdateFlagResponses, adminUpdateSettingData, adminUpdateSettingErrors, adminUpdateSettingResponses, flagsReadMyFlagsData, flagsReadMyFlagsResponses, healthHealthData, healthHealthLlmData, healthHealthLlmResponses, healthHealthResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, rolesGrantUserRoleData, rolesGrantUserRoleErrors, rolesGrantUserRoleResponses, rolesReadPermissionsData, rolesReadPermissionsResponses, rolesReadRolesData, rolesReadRolesResponses, rolesReadUserRolesData, rolesReadUserRolesErrors, rolesReadUserRolesResponses, rolesRevokeUserRoleData, rolesRevokeUserRoleErrors, rolesRevokeUserRoleResponses, roomsCreateRoomData, roomsCreateRoomErrors, roomsCreateRoomResponses, roomsForceStartRoomData, roomsForceStartRoomErrors, roomsForceStartRoomResponses, roomsGetRoomData, roomsGetRoomErrors, roomsGetRoomResponses, roomsJoinRoomData, roomsJoinRoomErrors, roomsJoinRoomResponses, roomsLeaveRoomData, roomsLeaveRoomErrors, roomsLeaveRoomResponses, roomsListRoomsData, roomsListRoomsErrors, roomsListRoomsResponses, roomsMovesSchemaData, roomsMovesSchemaErrors, roomsMovesSchemaResponses, roomsRoomEventsData, roomsRoomEventsErrors, roomsRoomEventsResponses, roomsRoomQueueData, roomsRoomQueueErrors, roomsRoomQueueResponses, roomsRoomViewData, roomsRoomViewErrors, roomsRoomViewResponses, roomsStartRoomData, roomsStartRoomErrors, roomsStartRoomResponses, roomsStopRoomData, roomsStopRoomErrors, roomsStopRoomResponses, roomsSubmitMoveData, roomsSubmitMoveErrors, roomsSubmitMoveResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMePermissionsData, usersReadUserMePermissionsResponses, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses } from './types.gen';
+import type { adminCreateOverrideData, adminCreateOverrideErrors, adminCreateOverrideResponses, adminReadFlagsData, adminReadFlagsResponses, adminReadSettingsData, adminReadSettingsResponses, adminRemoveOverrideData, adminRemoveOverrideErrors, adminRemoveOverrideResponses, adminUpdateFlagData, adminUpdateFlagErrors, adminUpdateFlagResponses, adminUpdateSettingData, adminUpdateSettingErrors, adminUpdateSettingResponses, flagsReadMyFlagsData, flagsReadMyFlagsResponses, gamesGameEventsData, gamesGameEventsErrors, gamesGameEventsResponses, gamesGetGameRecordData, gamesGetGameRecordErrors, gamesGetGameRecordResponses, gamesReplayData, gamesReplayErrors, gamesReplayResponses, healthHealthData, healthHealthLlmData, healthHealthLlmResponses, healthHealthResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, rolesGrantUserRoleData, rolesGrantUserRoleErrors, rolesGrantUserRoleResponses, rolesReadPermissionsData, rolesReadPermissionsResponses, rolesReadRolesData, rolesReadRolesResponses, rolesReadUserRolesData, rolesReadUserRolesErrors, rolesReadUserRolesResponses, rolesRevokeUserRoleData, rolesRevokeUserRoleErrors, rolesRevokeUserRoleResponses, roomsCreateRoomData, roomsCreateRoomErrors, roomsCreateRoomResponses, roomsForceStartRoomData, roomsForceStartRoomErrors, roomsForceStartRoomResponses, roomsGetRoomData, roomsGetRoomErrors, roomsGetRoomResponses, roomsJoinRoomData, roomsJoinRoomErrors, roomsJoinRoomResponses, roomsLeaveRoomData, roomsLeaveRoomErrors, roomsLeaveRoomResponses, roomsListRoomsData, roomsListRoomsErrors, roomsListRoomsResponses, roomsMovesSchemaData, roomsMovesSchemaErrors, roomsMovesSchemaResponses, roomsRoomEventsData, roomsRoomEventsErrors, roomsRoomEventsResponses, roomsRoomQueueData, roomsRoomQueueErrors, roomsRoomQueueResponses, roomsRoomViewData, roomsRoomViewErrors, roomsRoomViewResponses, roomsStartRoomData, roomsStartRoomErrors, roomsStartRoomResponses, roomsStopRoomData, roomsStopRoomErrors, roomsStopRoomResponses, roomsSubmitMoveData, roomsSubmitMoveErrors, roomsSubmitMoveResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMePermissionsData, usersReadUserMePermissionsResponses, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -755,6 +755,59 @@ export class RoomsService {
             responseType: 'json',
             security: [{ scheme: 'bearer', type: 'http' }],
             url: '/api/v1/rooms/{room_id}/events',
+            ...options
+        });
+    }
+}
+
+export class GamesService {
+    /**
+     * Get Game Record
+     */
+    public static getGameRecord<ThrowOnError extends boolean = true>(options: Options<gamesGetGameRecordData, ThrowOnError>) {
+        return (options.client ?? client).get<gamesGetGameRecordResponses, gamesGetGameRecordErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/games/{game_id}',
+            ...options
+        });
+    }
+    
+    /**
+     * Game Events
+     *
+     * The durable counterpart to the live ``/rooms/{room_id}/events``:
+     * ``since``/``next_since`` here are the archived ``seq`` integer, not a
+     * live bus cursor -- the game is over, there is nothing left to poll for.
+     */
+    public static gameEvents<ThrowOnError extends boolean = true>(options: Options<gamesGameEventsData, ThrowOnError>) {
+        return (options.client ?? client).get<gamesGameEventsResponses, gamesGameEventsErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/games/{game_id}/events',
+            ...options
+        });
+    }
+    
+    /**
+     * Replay
+     *
+     * Rebuilds one seat's ``PlayerView`` at any point in a finished game's
+     * history, straight from the archived move log (DECISIONS.md §12: "the
+     * event log is the source of truth; finished games replay from it") --
+     * ``upto`` (default: every move) truncates the replay to that many moves.
+     *
+     * Privacy stays exactly what it was live: a non-privileged caller may only
+     * ever request their own seat; a privileged caller (creator or
+     * ``room:view_seat_detail``) may request any seat, one at a time, same as
+     * the room's own live ``/view`` -- a cross-seat admin view is Phase 10's
+     * job, not this route's.
+     */
+    public static replay<ThrowOnError extends boolean = true>(options: Options<gamesReplayData, ThrowOnError>) {
+        return (options.client ?? client).get<gamesReplayResponses, gamesReplayErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/games/{game_id}/replay',
             ...options
         });
     }
