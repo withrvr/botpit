@@ -33,7 +33,7 @@ branch; only the phase branch opens a PR into `master`.
 | 4 | Privacy gate, prompt builder, human redaction | done 2026-09-12 (PR #10) |
 | 5 | Agent client, swappable backend | done 2026-09-12 (PR #10) |
 | 6 | Auth, accounts, roles/permissions | done 2026-09-12 (branch phase-6-auth, PR pending) |
-| 7 | Rooms, seats, capacity, join queue | next (data layer + Redis primitives already merged in Phase 6) |
+| 7 | Rooms, seats, capacity, join queue | done 2026-09-13 (branch phase-7-rooms) |
 | 8 | First live mixed game (terminal + API) | |
 | 9 | Persistence and replay | |
 | 10 | Frontend: play, spectate, admin, focus view | |
@@ -43,6 +43,97 @@ branch; only the phase branch opens a PR into `master`.
 | 14 | CI/CD (local dry-run; no server yet) | |
 | 15 | Production deployment (deferred until local complete) | |
 | 16 | Scale and polish | |
+
+## Phase 7 — done 2026-09-13 (branch phase-7-rooms)
+
+Everything PROGRESS.md's Phase 6 note said Phase 7 still needed: `RoomService`,
+HTTP routes, `SubscriptionGuard`, `GameRunner`/`ModelRegistry` lifespan wiring.
+
+- `app/rooms/service.py`: `RoomService` (`create`, `get`, `list_public`,
+  `join_by_code`, `leave`, `force_start`, `start`, `stop`, `capacity_check`)
+  and its exceptions (`RoomError`, `RoomFullError`, `RoomNotWaitingError`,
+  `CapacityExceededError`). `start`/`force_start` assemble and run a *real*
+  live game: a real `Referee` via `GameRunner.start`, real `HumanController`s
+  (unfed — Phase 8 adds `submit_move`), real `AgentController`s backed by the
+  real `ModelRegistry`. `create` grants the creator room-scoped `moderator`
+  and publishes `RoomCreated`; `join_by_code` publishes `SeatFilled`.
+- `app/rooms/guard.py`: `subscription_guard` — visibility + own-seat
+  resolution for the (not-yet-built) websocket/SSE transport, table-tested
+  now against every combination in its own docstring.
+- `app/api/routes/rooms.py`: `POST /`, `GET /`, `GET /{room_id}`, `POST
+  /join`, `POST /{room_id}/leave`, `POST|/{room_id}/start`,
+  `/force-start`, `/stop`, `GET /{room_id}/queue`. `CapacityExceededError`
+  registered as a global exception handler (429, same pattern as
+  `RateLimited`); a private room's existence is never leaked (403 vs 404).
+- `app/main.py`: `app.state.runner` (`GameRunner`) and
+  `app.state.model_registry` (`ModelRegistry`) created after the event bus
+  in the lifespan, torn down in the order runner -> registry -> bus.
+- Judgment calls made where the build brief left the sync/async split open
+  (documented in `docs/rooms.md` and in code comments): `create`,
+  `join_by_code`, `force_start`, `capacity_check` ended up `async def` (they
+  publish events / await the join queue / call another async method) even
+  though the brief's illustrative signatures showed some of them as plain
+  `def`; `get`, `list_public`, `leave`, `seats` stayed sync.
+- Deferred, precisely (not silently): the move-submission endpoint
+  (`GameRunner.submit_move`) and any websocket/SSE transport are Phase 8's
+  job per the build brief. The join queue's `enqueue`/`offer_next` are not
+  wired into `create`/`join_by_code`/`leave` in this phase — `capacity_check`
+  and the `/join` 409 body only *read* `queue.snapshot`; nobody actually
+  waits in line yet (see `docs/rooms.md` "Left for later").
+- Tests: `tests/rooms/{test_room_service,test_rooms_api,test_guard}.py`, 50
+  new tests (12 guard, 25 service, 13 HTTP), all passing against real
+  Postgres + Redis. Full suite: 705 tests, ruff/ruff-format/mypy
+  strict/ty/prek all clean.
+
+### Review fixes (two independent reviews: correctness/concurrency, security)
+
+- **Room lifecycle**: nothing previously demoted a naturally-finished game
+  out of `"in_progress"`, permanently leaking capacity over time.
+  `GameRunner.start(..., on_finished=...)` now spawns a watcher that fires
+  exactly once when the game's task ends; `RoomService._finish_room` opens
+  its own session (the request session may be long closed) and updates a
+  room still `"in_progress"` to `"finished"` or `"stopped"`; `close()`
+  awaits every pending watcher on shutdown. New `finished` status is now
+  actually reachable, closing the gap `docs/rooms.md` always documented.
+- **Capacity enforced at `start()`, not only `create()`** (CRITICAL,
+  security review): a caller could otherwise accumulate many `waiting`
+  rooms within `create()`'s rate limit, then call the unthrottled `start()`
+  on all of them, each firing real outbound LLM calls. `start()` now
+  re-checks capacity under a Postgres advisory transaction lock
+  (`pg_advisory_xact_lock`), serialising the check-then-flip step across
+  every worker process.
+- **Mass assignment fixed**: a `RoomSeatSpec.user_id` may now only be the
+  creator's own id; seating anyone else goes through `invited_user_id` +
+  that person joining themselves.
+- **Join-fallback reservation bug fixed**: an uninvited joiner's fallback
+  seat pick now excludes any seat still reserved (`invited_user_id` set for
+  someone else), and the whole claim is one atomic conditional `UPDATE`
+  (rowcount-checked) instead of a Python check-then-write race.
+- **`subscription_guard` privacy bug fixed**: `private`/`unlisted` rooms no
+  longer fall back to the blanket `room:view` permission every default
+  account holds (that made "private" mean nothing more than "is a
+  registered user"). Rewritten per DECISIONS §1.9's literal wording:
+  `private` needs a seat, full stop; `unlisted` admits any authenticated
+  caller (the link is the gate); `public` needs a seat or
+  `room:view_public`.
+- **`GET /{room_id}` no longer reveals every seat's identity** to any
+  caller who merely clears the visibility gate: seat `user_id`/
+  `invited_user_id`/`model`/`persona` are redacted to `null` except for the
+  viewer's own seat or a privileged caller (creator / `room:view_seat_detail`).
+  Unlisted rooms are now reachable by any authenticated caller at this
+  route too, matching the guard fix above.
+- Also fixed: `_insert_room_with_unique_code` now retries only on the
+  code's own unique-index collision (not any `IntegrityError`, which was
+  masking real failures as "no code available"); a bad `room_id` on
+  `grant_role`/`set_override` now 404s instead of surfacing as an unhandled
+  `IntegrityError`; a concurrent first read of an unseeded feature flag no
+  longer raises; `force_start`'s seat backfill no longer commits ahead of
+  `start()` succeeding (a failure used to leave human seats permanently
+  converted to agent seats).
+- New tests: `tests/unit/referee/test_runner.py` (the completion watcher,
+  fast via `PolicyController` — no real LLM calls needed), plus targeted
+  additions to `test_room_service.py`/`test_rooms_api.py`/`test_guard.py`
+  for every fix above. Full suite: 720 tests, gate clean.
 
 ## Phase 2 — done pending PR review
 

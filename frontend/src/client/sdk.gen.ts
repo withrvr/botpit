@@ -2,7 +2,7 @@
 
 import { type Client, type Options as Options2, type TDataShape, urlSearchParamsBodySerializer } from './client';
 import { client } from './client.gen';
-import type { adminCreateOverrideData, adminCreateOverrideErrors, adminCreateOverrideResponses, adminReadFlagsData, adminReadFlagsResponses, adminReadSettingsData, adminReadSettingsResponses, adminRemoveOverrideData, adminRemoveOverrideErrors, adminRemoveOverrideResponses, adminUpdateFlagData, adminUpdateFlagErrors, adminUpdateFlagResponses, adminUpdateSettingData, adminUpdateSettingErrors, adminUpdateSettingResponses, flagsReadMyFlagsData, flagsReadMyFlagsResponses, healthHealthData, healthHealthLlmData, healthHealthLlmResponses, healthHealthResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, rolesGrantUserRoleData, rolesGrantUserRoleErrors, rolesGrantUserRoleResponses, rolesReadPermissionsData, rolesReadPermissionsResponses, rolesReadRolesData, rolesReadRolesResponses, rolesReadUserRolesData, rolesReadUserRolesErrors, rolesReadUserRolesResponses, rolesRevokeUserRoleData, rolesRevokeUserRoleErrors, rolesRevokeUserRoleResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMePermissionsData, usersReadUserMePermissionsResponses, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses } from './types.gen';
+import type { adminCreateOverrideData, adminCreateOverrideErrors, adminCreateOverrideResponses, adminReadFlagsData, adminReadFlagsResponses, adminReadSettingsData, adminReadSettingsResponses, adminRemoveOverrideData, adminRemoveOverrideErrors, adminRemoveOverrideResponses, adminUpdateFlagData, adminUpdateFlagErrors, adminUpdateFlagResponses, adminUpdateSettingData, adminUpdateSettingErrors, adminUpdateSettingResponses, flagsReadMyFlagsData, flagsReadMyFlagsResponses, healthHealthData, healthHealthLlmData, healthHealthLlmResponses, healthHealthResponses, itemsCreateItemData, itemsCreateItemErrors, itemsCreateItemResponses, itemsDeleteItemData, itemsDeleteItemErrors, itemsDeleteItemResponses, itemsReadItemData, itemsReadItemErrors, itemsReadItemResponses, itemsReadItemsData, itemsReadItemsErrors, itemsReadItemsResponses, itemsUpdateItemData, itemsUpdateItemErrors, itemsUpdateItemResponses, loginLoginAccessTokenData, loginLoginAccessTokenErrors, loginLoginAccessTokenResponses, loginRecoverPasswordData, loginRecoverPasswordErrors, loginRecoverPasswordHtmlContentData, loginRecoverPasswordHtmlContentErrors, loginRecoverPasswordHtmlContentResponses, loginRecoverPasswordResponses, loginResetPasswordData, loginResetPasswordErrors, loginResetPasswordResponses, loginTestTokenData, loginTestTokenResponses, privateCreateUserData, privateCreateUserErrors, privateCreateUserResponses, rolesGrantUserRoleData, rolesGrantUserRoleErrors, rolesGrantUserRoleResponses, rolesReadPermissionsData, rolesReadPermissionsResponses, rolesReadRolesData, rolesReadRolesResponses, rolesReadUserRolesData, rolesReadUserRolesErrors, rolesReadUserRolesResponses, rolesRevokeUserRoleData, rolesRevokeUserRoleErrors, rolesRevokeUserRoleResponses, roomsCreateRoomData, roomsCreateRoomErrors, roomsCreateRoomResponses, roomsForceStartRoomData, roomsForceStartRoomErrors, roomsForceStartRoomResponses, roomsGetRoomData, roomsGetRoomErrors, roomsGetRoomResponses, roomsJoinRoomData, roomsJoinRoomErrors, roomsJoinRoomResponses, roomsLeaveRoomData, roomsLeaveRoomErrors, roomsLeaveRoomResponses, roomsListRoomsData, roomsListRoomsErrors, roomsListRoomsResponses, roomsRoomQueueData, roomsRoomQueueErrors, roomsRoomQueueResponses, roomsStartRoomData, roomsStartRoomErrors, roomsStartRoomResponses, roomsStopRoomData, roomsStopRoomErrors, roomsStopRoomResponses, usersCreateUserData, usersCreateUserErrors, usersCreateUserResponses, usersDeleteUserData, usersDeleteUserErrors, usersDeleteUserMeData, usersDeleteUserMeResponses, usersDeleteUserResponses, usersReadUserByIdData, usersReadUserByIdErrors, usersReadUserByIdResponses, usersReadUserMeData, usersReadUserMePermissionsData, usersReadUserMePermissionsResponses, usersReadUserMeResponses, usersReadUsersData, usersReadUsersErrors, usersReadUsersResponses, usersRegisterUserData, usersRegisterUserErrors, usersRegisterUserResponses, usersUpdatePasswordMeData, usersUpdatePasswordMeErrors, usersUpdatePasswordMeResponses, usersUpdateUserData, usersUpdateUserErrors, usersUpdateUserMeData, usersUpdateUserMeErrors, usersUpdateUserMeResponses, usersUpdateUserResponses, utilsHealthCheckData, utilsHealthCheckResponses, utilsTestEmailData, utilsTestEmailErrors, utilsTestEmailResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -564,6 +564,124 @@ export class FlagsService {
             responseType: 'json',
             security: [{ scheme: 'bearer', type: 'http' }],
             url: '/api/v1/flags/me',
+            ...options
+        });
+    }
+}
+
+export class RoomsService {
+    /**
+     * List Rooms
+     */
+    public static listRooms<ThrowOnError extends boolean = true>(options?: Options<roomsListRoomsData, ThrowOnError>) {
+        return (options?.client ?? client).get<roomsListRoomsResponses, roomsListRoomsErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/rooms/',
+            ...options
+        });
+    }
+    
+    /**
+     * Create Room
+     */
+    public static createRoom<ThrowOnError extends boolean = true>(options: Options<roomsCreateRoomData, ThrowOnError>) {
+        return (options.client ?? client).post<roomsCreateRoomResponses, roomsCreateRoomErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/rooms/',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+    
+    /**
+     * Get Room
+     */
+    public static getRoom<ThrowOnError extends boolean = true>(options: Options<roomsGetRoomData, ThrowOnError>) {
+        return (options.client ?? client).get<roomsGetRoomResponses, roomsGetRoomErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/rooms/{room_id}',
+            ...options
+        });
+    }
+    
+    /**
+     * Join Room
+     */
+    public static joinRoom<ThrowOnError extends boolean = true>(options: Options<roomsJoinRoomData, ThrowOnError>) {
+        return (options.client ?? client).post<roomsJoinRoomResponses, roomsJoinRoomErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/rooms/join',
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            }
+        });
+    }
+    
+    /**
+     * Leave Room
+     */
+    public static leaveRoom<ThrowOnError extends boolean = true>(options: Options<roomsLeaveRoomData, ThrowOnError>) {
+        return (options.client ?? client).post<roomsLeaveRoomResponses, roomsLeaveRoomErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/rooms/{room_id}/leave',
+            ...options
+        });
+    }
+    
+    /**
+     * Start Room
+     */
+    public static startRoom<ThrowOnError extends boolean = true>(options: Options<roomsStartRoomData, ThrowOnError>) {
+        return (options.client ?? client).post<roomsStartRoomResponses, roomsStartRoomErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/rooms/{room_id}/start',
+            ...options
+        });
+    }
+    
+    /**
+     * Force Start Room
+     */
+    public static forceStartRoom<ThrowOnError extends boolean = true>(options: Options<roomsForceStartRoomData, ThrowOnError>) {
+        return (options.client ?? client).post<roomsForceStartRoomResponses, roomsForceStartRoomErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/rooms/{room_id}/force-start',
+            ...options
+        });
+    }
+    
+    /**
+     * Stop Room
+     */
+    public static stopRoom<ThrowOnError extends boolean = true>(options: Options<roomsStopRoomData, ThrowOnError>) {
+        return (options.client ?? client).post<roomsStopRoomResponses, roomsStopRoomErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/rooms/{room_id}/stop',
+            ...options
+        });
+    }
+    
+    /**
+     * Room Queue
+     */
+    public static roomQueue<ThrowOnError extends boolean = true>(options: Options<roomsRoomQueueData, ThrowOnError>) {
+        return (options.client ?? client).get<roomsRoomQueueResponses, roomsRoomQueueErrors, ThrowOnError>({
+            responseType: 'json',
+            security: [{ scheme: 'bearer', type: 'http' }],
+            url: '/api/v1/rooms/{room_id}/queue',
             ...options
         });
     }

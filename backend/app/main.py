@@ -12,9 +12,11 @@ from app.api.main import api_router
 from app.core.config import settings
 from app.core.redis import close_redis
 from app.events import create_event_bus
-from app.llm import require_healthy_or_raise
+from app.llm import ModelRegistry, require_healthy_or_raise
 from app.middleware import WideEventMiddleware
 from app.ratelimit import RateLimited, rate_limited_handler
+from app.referee import GameRunner
+from app.rooms.service import CapacityExceededError, capacity_exceeded_handler
 from app.telemetry import configure_logging, get_logger
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
@@ -45,12 +47,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.env_name,
     )
     app.state.bus = None
+    app.state.runner = None
+    app.state.model_registry = None
     try:
         app.state.bus = create_event_bus(settings)
+        app.state.runner = GameRunner(app.state.bus)
+        app.state.model_registry = ModelRegistry.from_settings(settings)
         app.state.llm_health = await require_healthy_or_raise(settings)
         app.state.llm_health_at = time.monotonic()
         yield
     finally:
+        if app.state.runner is not None:
+            await app.state.runner.close()
+        if app.state.model_registry is not None:
+            await app.state.model_registry.aclose()
         if app.state.bus is not None:
             await app.state.bus.close()
         await close_redis()
@@ -66,6 +76,7 @@ app = FastAPI(
 )
 
 app.add_exception_handler(RateLimited, rate_limited_handler)
+app.add_exception_handler(CapacityExceededError, capacity_exceeded_handler)
 app.add_middleware(WideEventMiddleware)
 app.add_middleware(
     CORSMiddleware,

@@ -2,7 +2,7 @@ from collections.abc import Generator
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
@@ -11,7 +11,10 @@ from sqlmodel import Session
 from app.core import security
 from app.core.config import settings
 from app.core.db import engine
+from app.core.redis import RedisDep
 from app.models import TokenPayload, User
+from app.rooms.queue import JoinQueue
+from app.rooms.service import RoomService
 
 reusable_oauth2 = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/login/access-token"
@@ -55,3 +58,27 @@ def get_current_active_superuser(current_user: CurrentUser) -> User:
             status_code=403, detail="The user doesn't have enough privileges"
         )
     return current_user
+
+
+def get_join_queue(redis: RedisDep) -> JoinQueue:
+    return JoinQueue(redis)
+
+
+JoinQueueDep = Annotated[JoinQueue, Depends(get_join_queue)]
+
+
+def get_room_service(
+    session: SessionDep, request: Request, queue: JoinQueueDep
+) -> RoomService:
+    """``GameRunner``, ``ModelRegistry`` and the ``EventBus`` all live on
+    ``app.state``, set up once in the lifespan (``app/main.py``)."""
+    return RoomService(
+        session,
+        request.app.state.runner,
+        queue,
+        request.app.state.model_registry,
+        request.app.state.bus,
+    )
+
+
+RoomServiceDep = Annotated[RoomService, Depends(get_room_service)]

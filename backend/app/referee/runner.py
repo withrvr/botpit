@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -37,6 +37,11 @@ class GameRunner:
     def __init__(self, bus: EventBus) -> None:
         self.bus = bus
         self._games: dict[str, RunningGame] = {}
+        # Strong refs to the watcher tasks `start(on_finished=...)` spawns: asyncio
+        # only holds a weak ref to a task nothing else references, so without this
+        # a watcher could be garbage-collected mid-flight (see asyncio.create_task
+        # docs). Self-cleaned in `_watch` once the game it watches is done.
+        self._watchers: dict[str, asyncio.Task[None]] = {}
 
     def start(
         self,
@@ -45,7 +50,17 @@ class GameRunner:
         seed: int,
         specs: Sequence[SeatSpec],
         controllers: Mapping[Seat, SeatController],
+        *,
+        on_finished: Callable[[str, str], Awaitable[None]] | None = None,
     ) -> RunningGame:
+        """``on_finished(room_id, outcome)`` fires exactly once when the game's
+        task ends, with ``outcome`` "finished" (the referee returned normally)
+        or "stopped" (cancelled, or the referee raised). This is the only place
+        that knows a game actually ended; callers (``RoomService``) use it to
+        keep a room's persisted status from diverging from what is really
+        running -- ``stop()`` cancelling the task also satisfies this callback,
+        so a caller does not need to update status from both places.
+        """
         if room_id in self._games and not self._games[room_id].done:
             msg = f"room {room_id} already has a running game"
             raise ValueError(msg)
@@ -61,7 +76,28 @@ class GameRunner:
             controllers=dict(controllers),
         )
         self._games[room_id] = running
+        if on_finished is not None:
+            self._watchers[room_id] = asyncio.create_task(
+                self._watch(room_id, task, on_finished), name=f"game-watch:{room_id}"
+            )
         return running
+
+    async def _watch(
+        self,
+        room_id: str,
+        task: asyncio.Task[GameState],
+        on_finished: Callable[[str, str], Awaitable[None]],
+    ) -> None:
+        outcome = "finished"
+        try:
+            await task
+        except asyncio.CancelledError:
+            outcome = "stopped"
+        except Exception:  # a game/controller bug ended the room; still report it
+            outcome = "stopped"
+        self._watchers.pop(room_id, None)
+        with contextlib.suppress(Exception):
+            await on_finished(room_id, outcome)
 
     def get(self, room_id: str) -> RunningGame:
         return self._games[room_id]
@@ -87,3 +123,9 @@ class GameRunner:
     async def close(self) -> None:
         for room_id in list(self._games):
             await self.stop(room_id, "shutdown")
+        # `stop()` only awaits the game task itself; give each watcher (a
+        # separately scheduled task reacting to that same task) a turn to run
+        # its `on_finished` callback before shutdown proceeds.
+        for watcher in list(self._watchers.values()):
+            with contextlib.suppress(Exception):
+                await watcher

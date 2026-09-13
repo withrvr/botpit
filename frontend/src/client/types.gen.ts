@@ -353,6 +353,166 @@ export type RolePublic = {
 };
 
 /**
+ * RoomCreate
+ */
+export type RoomCreate = {
+    /**
+     * Game
+     */
+    game: string;
+    /**
+     * Seat Count
+     */
+    seat_count: number;
+    /**
+     * Visibility
+     */
+    visibility?: 'private' | 'unlisted' | 'public';
+    /**
+     * Seats
+     */
+    seats: Array<RoomSeatSpec>;
+};
+
+/**
+ * RoomJoinRequest
+ */
+export type RoomJoinRequest = {
+    /**
+     * Code
+     */
+    code: string;
+};
+
+/**
+ * RoomPublic
+ */
+export type RoomPublic = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Game
+     */
+    game: string;
+    /**
+     * Seat Count
+     */
+    seat_count: number;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Visibility
+     */
+    visibility: string;
+    /**
+     * Creator Id
+     */
+    creator_id: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Started At
+     */
+    started_at: string | null;
+    /**
+     * Finished At
+     */
+    finished_at: string | null;
+    /**
+     * Seats
+     */
+    seats: Array<RoomSeatPublic>;
+};
+
+/**
+ * RoomSeatPublic
+ */
+export type RoomSeatPublic = {
+    /**
+     * Kind
+     */
+    kind: 'human' | 'agent';
+    /**
+     * User Id
+     */
+    user_id?: string | null;
+    /**
+     * Invited User Id
+     */
+    invited_user_id?: string | null;
+    /**
+     * Model
+     */
+    model?: string | null;
+    /**
+     * Persona
+     */
+    persona?: string | null;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Seat
+     */
+    seat: number;
+    /**
+     * Status
+     */
+    status: string;
+};
+
+/**
+ * RoomSeatSpec
+ */
+export type RoomSeatSpec = {
+    /**
+     * Kind
+     */
+    kind: 'human' | 'agent';
+    /**
+     * User Id
+     */
+    user_id?: string | null;
+    /**
+     * Invited User Id
+     */
+    invited_user_id?: string | null;
+    /**
+     * Model
+     */
+    model?: string | null;
+    /**
+     * Persona
+     */
+    persona?: string | null;
+};
+
+/**
+ * RoomsPublic
+ */
+export type RoomsPublic = {
+    /**
+     * Data
+     */
+    data: Array<RoomPublic>;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
  * RuntimeSettingPublic
  */
 export type RuntimeSettingPublic = {
@@ -1533,6 +1693,270 @@ export type flagsReadMyFlagsResponses = {
 };
 
 export type flagsReadMyFlagsResponse = flagsReadMyFlagsResponses[keyof flagsReadMyFlagsResponses];
+
+export type roomsListRoomsData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Skip
+         */
+        skip?: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/rooms/';
+};
+
+export type roomsListRoomsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsListRoomsError = roomsListRoomsErrors[keyof roomsListRoomsErrors];
+
+export type roomsListRoomsResponses = {
+    /**
+     * Successful Response
+     */
+    200: RoomsPublic;
+};
+
+export type roomsListRoomsResponse = roomsListRoomsResponses[keyof roomsListRoomsResponses];
+
+export type roomsCreateRoomData = {
+    body: RoomCreate;
+    path?: never;
+    query?: never;
+    url: '/api/v1/rooms/';
+};
+
+export type roomsCreateRoomErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsCreateRoomError = roomsCreateRoomErrors[keyof roomsCreateRoomErrors];
+
+export type roomsCreateRoomResponses = {
+    /**
+     * Successful Response
+     */
+    200: RoomPublic;
+};
+
+export type roomsCreateRoomResponse = roomsCreateRoomResponses[keyof roomsCreateRoomResponses];
+
+export type roomsGetRoomData = {
+    body?: never;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rooms/{room_id}';
+};
+
+export type roomsGetRoomErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsGetRoomError = roomsGetRoomErrors[keyof roomsGetRoomErrors];
+
+export type roomsGetRoomResponses = {
+    /**
+     * Successful Response
+     */
+    200: RoomPublic;
+};
+
+export type roomsGetRoomResponse = roomsGetRoomResponses[keyof roomsGetRoomResponses];
+
+export type roomsJoinRoomData = {
+    body: RoomJoinRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/rooms/join';
+};
+
+export type roomsJoinRoomErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsJoinRoomError = roomsJoinRoomErrors[keyof roomsJoinRoomErrors];
+
+export type roomsJoinRoomResponses = {
+    /**
+     * Response Rooms-Join Room
+     *
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type roomsLeaveRoomData = {
+    body?: never;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rooms/{room_id}/leave';
+};
+
+export type roomsLeaveRoomErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsLeaveRoomError = roomsLeaveRoomErrors[keyof roomsLeaveRoomErrors];
+
+export type roomsLeaveRoomResponses = {
+    /**
+     * Successful Response
+     */
+    200: Message;
+};
+
+export type roomsLeaveRoomResponse = roomsLeaveRoomResponses[keyof roomsLeaveRoomResponses];
+
+export type roomsStartRoomData = {
+    body?: never;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rooms/{room_id}/start';
+};
+
+export type roomsStartRoomErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsStartRoomError = roomsStartRoomErrors[keyof roomsStartRoomErrors];
+
+export type roomsStartRoomResponses = {
+    /**
+     * Successful Response
+     */
+    200: RoomPublic;
+};
+
+export type roomsStartRoomResponse = roomsStartRoomResponses[keyof roomsStartRoomResponses];
+
+export type roomsForceStartRoomData = {
+    body?: never;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rooms/{room_id}/force-start';
+};
+
+export type roomsForceStartRoomErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsForceStartRoomError = roomsForceStartRoomErrors[keyof roomsForceStartRoomErrors];
+
+export type roomsForceStartRoomResponses = {
+    /**
+     * Successful Response
+     */
+    200: RoomPublic;
+};
+
+export type roomsForceStartRoomResponse = roomsForceStartRoomResponses[keyof roomsForceStartRoomResponses];
+
+export type roomsStopRoomData = {
+    body?: never;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rooms/{room_id}/stop';
+};
+
+export type roomsStopRoomErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsStopRoomError = roomsStopRoomErrors[keyof roomsStopRoomErrors];
+
+export type roomsStopRoomResponses = {
+    /**
+     * Successful Response
+     */
+    200: RoomPublic;
+};
+
+export type roomsStopRoomResponse = roomsStopRoomResponses[keyof roomsStopRoomResponses];
+
+export type roomsRoomQueueData = {
+    body?: never;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rooms/{room_id}/queue';
+};
+
+export type roomsRoomQueueErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsRoomQueueError = roomsRoomQueueErrors[keyof roomsRoomQueueErrors];
+
+export type roomsRoomQueueResponses = {
+    /**
+     * Response Rooms-Room Queue
+     *
+     * Successful Response
+     */
+    200: unknown;
+};
 
 export type privateCreateUserData = {
     body: PrivateUserCreate;
