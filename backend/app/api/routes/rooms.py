@@ -40,20 +40,35 @@ class RoomJoinRequest(BaseModel):
     code: str
 
 
-def _seat_public(s: RoomSeat) -> RoomSeatPublic:
+def _seat_public(s: RoomSeat, *, reveal: bool = True) -> RoomSeatPublic:
+    """``reveal=False`` blanks the seat's identity fields for a viewer who is
+    neither privileged nor that seat's own occupant -- ``kind``/``seat``/
+    ``status`` (is it open, filled, human, agent) stay visible either way,
+    since a room's shape is not sensitive; who specifically holds a seat is.
+    """
     return RoomSeatPublic(
         id=s.id,
         seat=s.seat,
         status=s.status,
         kind=cast('Literal["human", "agent"]', s.kind),
-        user_id=s.user_id,
-        invited_user_id=s.invited_user_id,
-        model=s.model,
-        persona=s.persona,
+        user_id=s.user_id if reveal else None,
+        invited_user_id=s.invited_user_id if reveal else None,
+        model=s.model if reveal else None,
+        persona=s.persona if reveal else None,
     )
 
 
-def _room_public(room: Room, seats: Sequence[RoomSeat]) -> RoomPublic:
+def _room_public(
+    room: Room,
+    seats: Sequence[RoomSeat],
+    *,
+    privileged: bool = True,
+    viewer_id: uuid.UUID | None = None,
+) -> RoomPublic:
+    """``privileged=False`` redacts every seat's identity except
+    ``viewer_id``'s own (a caller always sees their own seat, never anyone
+    else's, unless they hold ``room:view_seat_detail`` or created the room --
+    both call sites that apply pass ``privileged=True``)."""
     return RoomPublic(
         id=room.id,
         code=room.code,
@@ -65,7 +80,13 @@ def _room_public(room: Room, seats: Sequence[RoomSeat]) -> RoomPublic:
         created_at=room.created_at,
         started_at=room.started_at,
         finished_at=room.finished_at,
-        seats=[_seat_public(s) for s in seats],
+        seats=[
+            _seat_public(
+                s,
+                reveal=privileged or (viewer_id is not None and s.user_id == viewer_id),
+            )
+            for s in seats
+        ],
     )
 
 
@@ -102,7 +123,8 @@ async def create_room(
 def list_rooms(*, service: RoomServiceDep, skip: int = 0, limit: int = 100) -> Any:
     rooms, count = service.list_public(limit=limit, offset=skip)
     return RoomsPublic(
-        data=[_room_public(r, service.seats(r.id)) for r in rooms], count=count
+        data=[_room_public(r, service.seats(r.id), privileged=False) for r in rooms],
+        count=count,
     )
 
 
@@ -122,16 +144,17 @@ def get_room(
     seats = service.seats(room_id)
     perms = current_permissions(request, session, user, room_id)
     seated = any(s.user_id == user.id for s in seats)
+    privileged = P.ROOM_VIEW_SEAT_DETAIL in perms or room.creator_id == user.id
     allowed = (
-        P.ROOM_VIEW_SEAT_DETAIL in perms
-        or room.creator_id == user.id
+        privileged
         or seated
+        or room.visibility == "unlisted"  # "viewable with the link" (DECISIONS §1.9)
         or (room.visibility == "public" and P.ROOM_VIEW_PUBLIC in perms)
     )
     if not allowed:
         # Never distinguish "private" from "does not exist": both 404.
         raise HTTPException(status_code=404, detail="Room not found")
-    return _room_public(room, seats)
+    return _room_public(room, seats, privileged=privileged, viewer_id=user.id)
 
 
 @router.post(

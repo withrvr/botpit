@@ -78,46 +78,76 @@ or calls another async method; everything else (`get`, `list_public`,
   (raises `CapacityExceededError` at/over `max_concurrent_games`), validates
   the game slug and seat count (`Game.check_seat_count`), resolves each agent
   seat's model (default `registry.default_model`) and persona (default
-  `"steady"`) against `registry.models` / `get_persona`, and each human
-  seat's `user_id`/`invited_user_id` against real users — any failure is a
-  plain `ValueError` (the route turns that into 422). Inserts the `Room` with
-  a `new_join_code()` retried on a unique-constraint collision, then one
-  `RoomSeat` per spec entry (agent seats start `status="filled"`; human seats
-  `"filled"` only if `user_id` was given, else `"open"`). Grants the creator
-  room-scoped `moderator` via `app.authz.service.grant_role` (imported
-  directly, not through `app.authz`, to avoid the import cycle that module
-  already avoids elsewhere) and publishes `RoomCreated` (`PUBLIC`).
+  `"steady"`) against `registry.models` / `get_persona`. A human seat's
+  `user_id` may only ever be the creator's own id (seating anyone else here
+  would be mass assignment: the seat would show `"filled"` with no
+  accept/decline step); seating someone else goes through `invited_user_id`
+  + that person calling `join_by_code`. `invited_user_id`, if given, must
+  reference a real user. Any failure is a plain `ValueError` (the route
+  turns that into 422). Inserts the `Room` with a `new_join_code()` retried
+  *only* on a collision with the code's own unique index (any other
+  constraint failure propagates instead of being masked as "no code
+  available"), then one `RoomSeat` per spec entry (agent seats start
+  `status="filled"`; human seats `"filled"` only if `user_id` was given,
+  else `"open"`). Grants the creator room-scoped `moderator` via
+  `app.authz.service.grant_role` (imported directly, not through
+  `app.authz`, to avoid the import cycle that module already avoids
+  elsewhere) and publishes `RoomCreated` (`PUBLIC`).
 - **`get(room_id) -> Room`** / **`list_public(limit, offset) -> (rooms,
   count)`** — `list_public` returns only `visibility="public"` rooms, newest
   first; `unlisted` is reachable by id/code but never listed.
 - **`join_by_code(user, code) -> RoomSeat`** — `normalise_code` first, 404
   (`LookupError`) for an unknown code, `RoomNotWaitingError` once the room
   has left `waiting`. Idempotent (returns the caller's existing seat
-  unchanged); otherwise prefers a seat where `invited_user_id == user.id`,
-  else the lowest-numbered open human seat; `RoomFullError` (carrying
-  `room_id`, so the route can attach queue info) when none is open.
-  Publishes `SeatFilled` (`PUBLIC`).
+  unchanged); otherwise atomically claims the best open seat via
+  `_claim_open_seat`: the caller's own reserved invite first, else any open
+  seat whose `invited_user_id` is `None` — a seat reserved for a *different*
+  invitee is never taken by the fallback, and the claim is a single
+  conditional `UPDATE ... WHERE status='open' AND (invited_user_id IS NULL
+  OR invited_user_id = :user)` (not a prior `SELECT`), so two callers racing
+  for the same seat cannot both win it: whichever commits first gets
+  `rowcount == 1`, the other retries against whatever seat is left.
+  `RoomFullError` (carrying `room_id`, so the route can attach queue info)
+  when nothing is left. Publishes `SeatFilled` (`PUBLIC`).
 - **`leave(user, room_id) -> None`** — only while `waiting`; frees the
   caller's own seat back to `kind="human", status="open", user_id=None`. A
   no-op if the caller holds no seat, or the room isn't `waiting`. Does not
   touch the join queue (see "left for later" below).
 - **`force_start(user, room_id) -> Room`** — backfills every remaining open
   *human* seat to an agent seat (`registry.default_model`, persona
-  `"steady"`), then calls `start`. The caller's permission is checked by the
-  route, not here.
+  `"steady"`), staged but not committed, then calls `start`. If `start`
+  raises (capacity exceeded, say), nothing is persisted — `start`'s own
+  `seats()` read autoflushes the staged backfill so it still sees it, and
+  everything commits together in `start`'s single final commit, or none of
+  it does. The caller's permission is checked by the route, not here.
 - **`start(room_id) -> Room`** — `RoomNotWaitingError` unless `waiting`,
   `RoomFullError` if any seat is still `open` (backfill first). Builds one
-  `SeatSpec` + controller per seat (`HumanController()` for `human` — nothing
-  feeds it yet, that's Phase 8; a real `AgentController` wired to
-  `registry.client_for(model)` for `agent`), calls the *synchronous*
-  `runner.start(...)` (it wraps `asyncio.create_task`, so this must run on
-  the event-loop thread — never through `run_in_threadpool`), then sets
+  `SeatSpec` + controller per seat (`HumanController()` for `human` —
+  nothing feeds it yet, that's Phase 8; a real `AgentController` wired to
+  `registry.client_for(model)` for `agent`; none of this does network I/O).
+  Then, under a Postgres advisory transaction lock
+  (`pg_advisory_xact_lock`, a fixed key, released automatically at this
+  method's commit/rollback) it re-runs `capacity_check()` and re-reads the
+  room's status, so a room cannot start once capacity is already spent by
+  another `start()` call — this is the actual enforcement point, not
+  `create()` (which only stops a room from being *created* past the cap;
+  nothing previously stopped an already-created "waiting" room from being
+  started past it). The lock serialises this check-then-flip step across
+  every worker process, not just this one. Once past it: calls the
+  *synchronous* `runner.start(..., on_finished=self._finish_room)` (it
+  wraps `asyncio.create_task`, so this must run on the event-loop thread —
+  never through `run_in_threadpool`; a `ValueError` from it, an
+  already-running game, is translated to `RoomNotWaitingError`), then sets
   `status="in_progress"`, `started_at=now`.
+- **`_finish_room(room_id, outcome)`** — `GameRunner`'s completion callback
+  (`outcome` is `"finished"` when the referee returned normally, `"stopped"`
+  when it was cancelled or raised); see "Room lifecycle" below.
 - **`stop(room_id, reason) -> Room`** — cancels the running game via
   `runner.stop` if one is active; a `KeyError` (never started, or already
   stopped) is swallowed. Always sets `status="stopped"`, `finished_at=now`:
   stop is a safe, idempotent operator action regardless of whether a game
-  was actually running.
+  was actually running. Does not conflict with `_finish_room`'s own write
+  for the same cancellation (see below).
 - **`capacity_check() -> None`** — `CapacityExceededError("global", status)`
   when the count of `status="in_progress"` rooms is at or over
   `settings_store.max_concurrent_games(session)`. `status` is a
@@ -125,6 +155,27 @@ or calls another async method; everything else (`get`, `list_public`,
   enqueued at create-time in this phase (see below), so it always reads
   `position=None`; the shape is still returned so a future enqueue-on-capacity
   flow is a pure addition, not a response-shape change.
+
+### Room lifecycle: `waiting` -> `in_progress` -> `finished` / `stopped`
+
+A room's persisted `status` must never silently diverge from whether a game
+is actually running under `GameRunner` — otherwise a naturally-finished game
+leaves its row `"in_progress"` forever, permanently consuming a slot of
+`max_concurrent_games` even though nothing is running. `GameRunner.start(...,
+on_finished=callback)` closes this: it spawns a small watcher task that
+awaits the same task the referee runs on and calls `callback(room_id,
+outcome)` exactly once when it ends (`"finished"` on a normal return,
+`"stopped"` on cancellation or an unhandled exception), then self-removes
+from `GameRunner._watchers`. `RoomService.start()` passes `self._finish_room`
+as that callback, which opens its *own* fresh `Session` (the request that
+called `start()` may have long since finished and closed its session) and
+only updates a room still `"in_progress"` — an explicit `stop()` already
+wrote `"stopped"` itself, and this guard is what stops the two from racing
+or double-writing. `GameRunner.close()` (app shutdown) awaits every pending
+watcher after cancelling every game, so a graceful shutdown never leaves a
+room's DB row out of sync with what a fresh process will see on restart (no
+running task, but a row correctly marked `"stopped"` rather than a
+lingering `"in_progress"`).
 
 ### Left for later (explicitly, not silently)
 
@@ -157,36 +208,45 @@ the result to `app.events.filter_for_subscriber` for every event after that.
 | room visibility | caller | outcome |
 |---|---|---|
 | any | holds `room:view_seat_detail` | `Subscriber(kind="privileged")` — always, regardless of visibility, seat, or anonymity |
-| `private` | anonymous (`user is None`) | denied (`None`), even if `perms` is non-empty — private rooms are never guessable by permission alone |
-| `private` / `unlisted` | has a seat in `seats` | `Subscriber(kind="player", seat=n)` |
-| `private` / `unlisted` | no seat, holds `room:view` | `Subscriber(kind="player", seat=None)` |
-| `private` / `unlisted` | no seat, no `room:view` | denied |
-| `public` | has a seat | `Subscriber(kind="player", seat=n)` |
-| `public` | no seat, holds `room:view` or `room:view_public` | `Subscriber(kind="player", seat=None)` |
-| `public` | no seat, neither permission | denied |
+| any | anonymous (`user is None`), no `room:view_seat_detail` | denied (`None`), regardless of `perms` |
+| `private` | has a seat in `seats` | `Subscriber(kind="player", seat=n)` |
+| `private` | no seat | denied — **no permission fallback at all**, including `room:view_public` and the blanket `room:view` every default account holds; "invited players and admins only" (DECISIONS §1.9) |
+| `unlisted` | authenticated, any `perms` | `Subscriber(kind="player", seat=n)` if seated, else `seat=None` — the room id itself ("the link") is the access control per DECISIONS §1.9, no specific permission required |
+| `public` | has a seat, or holds `room:view_public` | `Subscriber(kind="player", seat=n or None)` |
+| `public` | no seat, no `room:view_public` | denied |
 
-`unlisted` is gated identically to `private` here: not being in the public
-listing is a *discovery* property (see `list_public` above), not a
-subscription one — this function is only reached by a caller who already
-has the room's id or code.
+**`room:view` (bare, not `_public`/`_seat_detail`) is never checked here.**
+It is granted to every default account (`player`, `spectator`) on signup, so
+treating it as sufficient for a private or unlisted room would mean nothing
+more than "is a registered user" — exactly the bug this function must not
+have. It remains a seeded permission (Phase 6) but is currently unused by
+any code path; nothing before this doc's writing checks it.
 
-A permitted spectator with no seat and no `room:view_seat_detail` is `kind="player", seat=None`
-— the same public-only event feed as a seated player, never the privileged
-one. Holding a seat always wins regardless of `perms` (even `frozenset()`)
-for `private`/`unlisted`/`public` alike, as long as the caller isn't
-anonymous on a private room.
+`unlisted`'s "not listed" property is a *discovery* concern (see
+`list_public` above), separate from the subscription decision above: this
+function is only reached by a caller who already has the room's id or code,
+and once there, being logged in is enough.
 
 ## HTTP routes (`app/api/routes/rooms.py`, prefix `/rooms`, tag `rooms`)
 
 `RoomPublic` (already carrying `seats: list[RoomSeatPublic]` in
 `app/models.py`) is returned by every route that hands back a room, list or
-single — one response shape, no separate "detail" model needed.
+single — one response shape, no separate "detail" model needed. Seat
+identity fields (`user_id`, `invited_user_id`, `model`, `persona`) are
+**redacted to `null`** on any seat that is neither the viewer's own nor seen
+by a privileged caller (creator or `room:view_seat_detail`); `kind`/`seat`/
+`status` (a room's shape) are never redacted. `POST /` and the
+creator/moderator-only `start`/`force-start`/`stop` routes always return
+full detail (the caller is always privileged there); `GET /` (the public
+listing) never reveals any seat's identity to anyone; `GET /{room_id}`
+computes `privileged`/`viewer_id` per caller and redacts accordingly; `POST
+/join` returns the caller's own seat, always revealed.
 
 | Route | Auth | Notes |
 |---|---|---|
 | `POST /` | `room:create` + `rate_limit_from_setting("room:create", ...)` | `ValueError` -> 422; `CapacityExceededError` -> 429 (global handler, same pattern as `RateLimited`) |
-| `GET /` | `room:view_public` | paginated (`skip`/`limit`), `visibility="public"` only |
-| `GET /{room_id}` | authenticated | creator, seated user, or `room:view_seat_detail` always allowed; else a public room needs `room:view_public`; every denial is 404 (never a 403, so a private room's existence is never leaked) |
+| `GET /` | `room:view_public` | paginated (`skip`/`limit`), `visibility="public"` only, seat identity always redacted |
+| `GET /{room_id}` | authenticated | creator, seated user, `room:view_seat_detail`, or an **`unlisted`** room (any authenticated caller — "viewable with the link") is allowed in; a `public` room additionally needs `room:view_public`; a `private` room with none of the above is 404; every denial is 404 (never a 403, so a room's existence is never leaked) |
 | `POST /join` | `room:join` + rate limit | body `{"code": str}`; `LookupError` -> 404; `RoomNotWaitingError` -> 409; `RoomFullError` -> 409 with `{"detail", "queue": {"position", "length", "eta_seconds"}}` from `queue.snapshot(f"room:{room_id}", str(user.id))` |
 | `POST /{room_id}/leave` | authenticated only | always safe to call; no-op if not seated |
 | `POST /{room_id}/start` | creator, or `room:force_stop` for the room | 409 on `RoomNotWaitingError`/`RoomFullError` |

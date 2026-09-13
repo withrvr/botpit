@@ -25,15 +25,17 @@ def subscription_guard(
 
     - ``room:view_seat_detail`` in ``perms`` -> privileged (every seat, full
       detail), regardless of visibility.
-    - A private room denies an anonymous caller outright, even one holding
-      (nonsensically) some permission -- private rooms are never guessable
-      by permission alone.
-    - Private/unlisted otherwise need the caller's own seat or ``room:view``.
-      Unlisted is not discoverable through listing, but that's a listing
-      concern, not a subscription one: this function is reached only by
-      someone who already has the room's id or code, so it is gated the
-      same as private.
-    - Public needs a seat, ``room:view``, or ``room:view_public``.
+    - ``private``: "invited players and admins only" (DECISIONS.md §1.9) --
+      the caller's own seat, or nothing. Deliberately does **not** fall back
+      to any permission: ``room:view`` is granted to every default account
+      on signup (``player``, ``spectator``), so treating it as sufficient
+      here would let any registered user who merely learns a private room's
+      id watch it forever -- the exact bug this function must not have.
+    - ``unlisted``: "viewable with the link, not listed publicly" -- the
+      link (the room id, reaching this function at all) is the access
+      control, so any authenticated caller is admitted; anonymous is not.
+    - ``public``: "listed and viewable by any account with spectator
+      permission" -- the caller's own seat, or ``room:view_public``.
     - Holding a seat always returns ``Subscriber(kind="player", seat=n)``; a
       permitted spectator with no seat gets ``Subscriber(kind="player",
       seat=None)`` -- the same public-only feed as a seated player, not the
@@ -42,20 +44,18 @@ def subscription_guard(
     if P.ROOM_VIEW_SEAT_DETAIL in perms:
         return Subscriber(kind="privileged")
 
-    if room.visibility == "private" and user is None:
-        return None
+    if user is None:
+        return None  # every remaining branch requires an authenticated caller
 
-    seat_number = (
-        next((s.seat for s in seats if s.user_id == user.id), None)
-        if user is not None
-        else None
-    )
+    seat_number = next((s.seat for s in seats if s.user_id == user.id), None)
     has_seat = seat_number is not None
 
-    if room.visibility == "public":
-        allowed = has_seat or P.ROOM_VIEW in perms or P.ROOM_VIEW_PUBLIC in perms
-    else:  # private, unlisted
-        allowed = has_seat or P.ROOM_VIEW in perms
+    if room.visibility == "private":
+        allowed = has_seat
+    elif room.visibility == "unlisted":
+        allowed = True  # authenticated + reached this room's id: that's the gate
+    else:  # public
+        allowed = has_seat or P.ROOM_VIEW_PUBLIC in perms
 
     if not allowed:
         return None

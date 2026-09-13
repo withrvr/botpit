@@ -85,6 +85,56 @@ HTTP routes, `SubscriptionGuard`, `GameRunner`/`ModelRegistry` lifespan wiring.
   Postgres + Redis. Full suite: 705 tests, ruff/ruff-format/mypy
   strict/ty/prek all clean.
 
+### Review fixes (two independent reviews: correctness/concurrency, security)
+
+- **Room lifecycle**: nothing previously demoted a naturally-finished game
+  out of `"in_progress"`, permanently leaking capacity over time.
+  `GameRunner.start(..., on_finished=...)` now spawns a watcher that fires
+  exactly once when the game's task ends; `RoomService._finish_room` opens
+  its own session (the request session may be long closed) and updates a
+  room still `"in_progress"` to `"finished"` or `"stopped"`; `close()`
+  awaits every pending watcher on shutdown. New `finished` status is now
+  actually reachable, closing the gap `docs/rooms.md` always documented.
+- **Capacity enforced at `start()`, not only `create()`** (CRITICAL,
+  security review): a caller could otherwise accumulate many `waiting`
+  rooms within `create()`'s rate limit, then call the unthrottled `start()`
+  on all of them, each firing real outbound LLM calls. `start()` now
+  re-checks capacity under a Postgres advisory transaction lock
+  (`pg_advisory_xact_lock`), serialising the check-then-flip step across
+  every worker process.
+- **Mass assignment fixed**: a `RoomSeatSpec.user_id` may now only be the
+  creator's own id; seating anyone else goes through `invited_user_id` +
+  that person joining themselves.
+- **Join-fallback reservation bug fixed**: an uninvited joiner's fallback
+  seat pick now excludes any seat still reserved (`invited_user_id` set for
+  someone else), and the whole claim is one atomic conditional `UPDATE`
+  (rowcount-checked) instead of a Python check-then-write race.
+- **`subscription_guard` privacy bug fixed**: `private`/`unlisted` rooms no
+  longer fall back to the blanket `room:view` permission every default
+  account holds (that made "private" mean nothing more than "is a
+  registered user"). Rewritten per DECISIONS §1.9's literal wording:
+  `private` needs a seat, full stop; `unlisted` admits any authenticated
+  caller (the link is the gate); `public` needs a seat or
+  `room:view_public`.
+- **`GET /{room_id}` no longer reveals every seat's identity** to any
+  caller who merely clears the visibility gate: seat `user_id`/
+  `invited_user_id`/`model`/`persona` are redacted to `null` except for the
+  viewer's own seat or a privileged caller (creator / `room:view_seat_detail`).
+  Unlisted rooms are now reachable by any authenticated caller at this
+  route too, matching the guard fix above.
+- Also fixed: `_insert_room_with_unique_code` now retries only on the
+  code's own unique-index collision (not any `IntegrityError`, which was
+  masking real failures as "no code available"); a bad `room_id` on
+  `grant_role`/`set_override` now 404s instead of surfacing as an unhandled
+  `IntegrityError`; a concurrent first read of an unseeded feature flag no
+  longer raises; `force_start`'s seat backfill no longer commits ahead of
+  `start()` succeeding (a failure used to leave human seats permanently
+  converted to agent seats).
+- New tests: `tests/unit/referee/test_runner.py` (the completion watcher,
+  fast via `PolicyController` — no real LLM calls needed), plus targeted
+  additions to `test_room_service.py`/`test_rooms_api.py`/`test_guard.py`
+  for every fix above. Full suite: 720 tests, gate clean.
+
 ## Phase 2 — done pending PR review
 
 - `botpit.games.base`: `Game[State, Move]` contract, frozen pydantic state,

@@ -405,3 +405,144 @@ async def test_create_at_capacity_raises_capacity_exceeded(
         settings_store.set_value(
             db, "max_concurrent_games", settings.MAX_CONCURRENT_GAMES, None
         )
+
+
+async def test_start_enforces_capacity_not_just_create(
+    db: Session, service: RoomService
+) -> None:
+    """The actual fix for the exhaustion bug: capacity is re-checked at
+    start(), not only at create(). Without this, a caller could accumulate
+    many "waiting" rooms (each within create()'s per-window rate limit) and
+    then call the unthrottled start() on all of them, each firing real
+    outbound LLM calls, far past ``max_concurrent_games``."""
+    settings_store.set_value(db, "max_concurrent_games", 1, None)
+    room_a = room_b = None
+    try:
+        creator = create_random_user(db)
+        room_a = await service.create(creator, _two_agent())
+        room_b = await service.create(creator, _two_agent())  # both still "waiting"
+        await service.start(room_a.id)  # consumes the one slot
+
+        with pytest.raises(CapacityExceededError):
+            await service.start(room_b.id)
+        # the refused room must be untouched, not half-started
+        assert service.get(room_b.id).status == "waiting"
+    finally:
+        if room_a is not None:
+            await service.stop(room_a.id, "test cleanup")
+        settings_store.set_value(
+            db, "max_concurrent_games", settings.MAX_CONCURRENT_GAMES, None
+        )
+
+
+# -- mass assignment / seat reservation -------------------------------------
+
+
+async def test_create_seat_user_id_must_be_the_creators_own(
+    db: Session, service: RoomService
+) -> None:
+    """A seat's ``user_id`` may only ever be the creator seating themself --
+    accepting anyone else's id here would force-seat a victim as "filled"
+    with no accept/decline step (mass assignment)."""
+    creator = create_random_user(db)
+    victim = create_random_user(db)
+    spec = RoomCreate(
+        game="uno_classic",
+        seat_count=2,
+        visibility="private",
+        seats=[
+            RoomSeatSpec(kind="human", user_id=victim.id),
+            RoomSeatSpec(kind="human"),
+        ],
+    )
+    with pytest.raises(ValueError, match="creator's own id"):
+        await service.create(creator, spec)
+
+
+async def test_create_seat_user_id_as_creators_own_is_accepted(
+    db: Session, service: RoomService
+) -> None:
+    creator = create_random_user(db)
+    spec = RoomCreate(
+        game="uno_classic",
+        seat_count=2,
+        visibility="private",
+        seats=[
+            RoomSeatSpec(kind="human", user_id=creator.id),
+            RoomSeatSpec(kind="human"),
+        ],
+    )
+    room = await service.create(creator, spec)
+    seats = service.seats(room.id)
+    assert seats[0].user_id == creator.id
+    assert seats[0].status == "filled"
+
+
+async def test_join_fallback_never_steals_a_seat_reserved_for_someone_else(
+    db: Session, service: RoomService
+) -> None:
+    """A seat with ``invited_user_id`` set is reserved: an uninvited joiner
+    filling it via the "any open seat" fallback would silently lock the
+    intended invitee out."""
+    creator = create_random_user(db)
+    invitee = create_random_user(db)
+    gatecrasher = create_random_user(db)
+    spec = RoomCreate(
+        game="uno_classic",
+        seat_count=2,
+        visibility="unlisted",
+        seats=[
+            RoomSeatSpec(kind="human", invited_user_id=invitee.id),
+            RoomSeatSpec(kind="human"),
+        ],
+    )
+    room = await service.create(creator, spec)
+
+    taken = await service.join_by_code(gatecrasher, room.code)
+    assert taken.user_id == gatecrasher.id
+
+    remaining = next(s for s in service.seats(room.id) if s.seat != taken.seat)
+    assert remaining.invited_user_id == invitee.id
+    assert remaining.status == "open"
+
+    # the invitee can still claim their reserved seat afterwards
+    invited_seat = await service.join_by_code(invitee, room.code)
+    assert invited_seat.user_id == invitee.id
+    assert invited_seat.invited_user_id is None
+
+
+# -- finished status ----------------------------------------------------------
+
+
+async def test_finish_room_marks_an_in_progress_room_finished(
+    db: Session, service: RoomService
+) -> None:
+    creator = create_random_user(db)
+    room = await service.create(creator, _two_agent())
+    room.status = "in_progress"
+    db.add(room)
+    db.commit()
+
+    await service._finish_room(str(room.id), "finished")
+    db.expire(room)  # _finish_room commits through its own fresh Session
+
+    updated = service.get(room.id)
+    assert updated.status == "finished"
+    assert updated.finished_at is not None
+
+
+async def test_finish_room_does_not_overwrite_an_already_stopped_room(
+    db: Session, service: RoomService
+) -> None:
+    """An explicit ``stop()`` already wrote "stopped"; the completion
+    callback racing in afterwards must not clobber it back to "finished"."""
+    creator = create_random_user(db)
+    room = await service.create(creator, _two_agent())
+    room.status = "stopped"
+    db.add(room)
+    db.commit()
+
+    await service._finish_room(str(room.id), "finished")
+    db.expire(room)
+
+    assert service.get(room.id).status == "stopped"

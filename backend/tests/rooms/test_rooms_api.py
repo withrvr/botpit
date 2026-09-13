@@ -271,3 +271,83 @@ def test_leave_frees_own_seat_only(
     r = client.get(f"{API}/rooms/{room_id}", headers=h)
     seats = r.json()["seats"]
     assert next(s for s in seats if s["seat"] == 0)["status"] == "open"
+
+
+def test_get_public_room_redacts_seat_identity_for_an_unseated_viewer(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    """A public room is viewable by any ``room:view_public`` holder, but that
+    must only widen *admission*, not reveal every seat's identity: an
+    unseated spectator sees shape (kind/seat/status) but not who -- or which
+    model/persona -- occupies a seat that isn't theirs."""
+    h = superuser_token_headers
+    r = client.post(
+        f"{API}/rooms/", headers=h, json=_body(visibility="public", agent=True)
+    )
+    assert r.status_code == 200, r.text
+    room_id = r.json()["id"]
+
+    spectator = _new_user_headers(client)  # default "player" role: has room:view_public
+    r = client.get(f"{API}/rooms/{room_id}", headers=spectator)
+    assert r.status_code == 200
+    for seat in r.json()["seats"]:
+        assert seat["kind"] == "agent"
+        assert seat["status"] == "filled"
+        assert seat["model"] is None
+        assert seat["persona"] is None
+        assert seat["user_id"] is None
+
+    # the creator still sees full detail of their own room
+    r = client.get(f"{API}/rooms/{room_id}", headers=h)
+    assert all(s["model"] is not None for s in r.json()["seats"])
+
+
+def test_get_public_room_reveals_the_viewers_own_seat(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    h = superuser_token_headers
+    r = client.post(
+        f"{API}/rooms/", headers=h, json=_body(visibility="public", seat_count=2)
+    )
+    room_id, code = r.json()["id"], r.json()["code"]
+    joiner = _new_user_headers(client)
+    r = client.post(f"{API}/rooms/join", headers=joiner, json={"code": code})
+    joiner_seat = r.json()["seat"]
+
+    r = client.get(f"{API}/rooms/{room_id}", headers=joiner)
+    seats = {s["seat"]: s for s in r.json()["seats"]}
+    assert seats[joiner_seat]["user_id"] is not None  # their own seat: revealed
+    other = next(s for seat_no, s in seats.items() if seat_no != joiner_seat)
+    assert other["user_id"] is None  # someone else's: still redacted
+
+
+def test_get_unlisted_room_is_viewable_by_any_authenticated_user(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    """ "Viewable with the link, not listed publicly" (DECISIONS §1.9): unlike
+    private, an unlisted room's id alone is the access control."""
+    h = superuser_token_headers
+    r = client.post(f"{API}/rooms/", headers=h, json=_body(visibility="unlisted"))
+    room_id = r.json()["id"]
+
+    outsider = _new_user_headers(client)  # not seated, not the creator
+    r = client.get(f"{API}/rooms/{room_id}", headers=outsider)
+    assert r.status_code == 200
+    # still redacted for this unseated, unprivileged viewer
+    assert all(s["user_id"] is None for s in r.json()["seats"])
+
+    # and it never appears in the public listing (that's "not listed publicly")
+    r = client.get(f"{API}/rooms/", headers=outsider)
+    assert all(x["id"] != room_id for x in r.json()["data"])
+
+
+def test_create_seat_user_id_for_another_user_is_422(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    h = superuser_token_headers
+    victim = _new_user_headers(client)
+    victim_id = client.get(f"{API}/users/me", headers=victim).json()["id"]
+    body = _body(seat_count=2)
+    body["seats"][0] = {"kind": "human", "user_id": victim_id}
+    r = client.post(f"{API}/rooms/", headers=h, json=body)
+    assert r.status_code == 422

@@ -49,9 +49,13 @@ def _seat(room: Room, user: User) -> RoomSeat:
 
 
 NONE: frozenset[str] = frozenset()
-VIEW = frozenset({P.ROOM_VIEW})
 VIEW_PUBLIC = frozenset({P.ROOM_VIEW_PUBLIC})
 SEAT_DETAIL = frozenset({P.ROOM_VIEW_SEAT_DETAIL})
+# `room:view` is granted to every default account (player, spectator) on
+# signup; it must never by itself unlock a private or unlisted room, or it
+# would mean nothing more than "is a registered user". See the guard's own
+# docstring and DECISIONS.md §1.9.
+BLANKET_VIEW = frozenset({P.ROOM_VIEW})
 
 
 @pytest.mark.parametrize("visibility", ["private", "unlisted", "public"])
@@ -73,46 +77,51 @@ def test_view_seat_detail_beats_no_seats_list_too(visibility: str) -> None:
     assert result.kind == "privileged"
 
 
-def test_private_anonymous_is_always_denied_even_with_permissions() -> None:
-    room = _room("private")
-    # room:view alone would normally admit a seatless spectator; anonymity
-    # on a private room vetoes that outright per the guard's own contract.
-    assert subscription_guard(room, [], None, VIEW) is None
-    assert subscription_guard(room, [], None, VIEW_PUBLIC) is None
-    assert subscription_guard(room, [], None, NONE) is None
-
-
-@pytest.mark.parametrize("visibility", ["private", "unlisted"])
-def test_private_and_unlisted_need_a_seat_or_room_view(visibility: str) -> None:
+@pytest.mark.parametrize("visibility", ["private", "unlisted", "public"])
+def test_anonymous_is_always_denied_without_seat_detail(visibility: str) -> None:
+    """No permission set admits an anonymous caller into any room; only
+    ``room:view_seat_detail`` (checked before ``user is None``) can."""
     room = _room(visibility)
+    assert subscription_guard(room, [], None, NONE) is None
+    assert subscription_guard(room, [], None, VIEW_PUBLIC) is None
+    assert subscription_guard(room, [], None, BLANKET_VIEW) is None
+
+
+def test_private_needs_a_seat_and_nothing_else() -> None:
+    room = _room("private")
     user = _user()
     assert subscription_guard(room, [], user, NONE) is None
-    assert (
-        subscription_guard(room, [], user, VIEW_PUBLIC) is None
-    )  # public perm insufficient
+    assert subscription_guard(room, [], user, VIEW_PUBLIC) is None
+    # The bug this guards against: the blanket `room:view` every account
+    # holds must not be treated as "invited".
+    assert subscription_guard(room, [], user, BLANKET_VIEW) is None
 
-    _assert_player(subscription_guard(room, [], user, VIEW), seat=None)
     _assert_player(subscription_guard(room, [_seat(room, user)], user, NONE), seat=0)
 
 
-def test_public_needs_a_seat_room_view_or_room_view_public() -> None:
+def test_unlisted_admits_any_authenticated_caller() -> None:
+    """ "Viewable with the link, not listed publicly" (DECISIONS §1.9): the
+    room id itself is the access control once a caller is logged in, no
+    specific permission required."""
+    room = _room("unlisted")
+    user = _user()
+    _assert_player(subscription_guard(room, [], user, NONE), seat=None)
+    _assert_player(subscription_guard(room, [], user, VIEW_PUBLIC), seat=None)
+    _assert_player(subscription_guard(room, [], user, BLANKET_VIEW), seat=None)
+    _assert_player(subscription_guard(room, [_seat(room, user)], user, NONE), seat=0)
+
+
+def test_public_needs_a_seat_or_room_view_public() -> None:
     room = _room("public")
     user = _user()
     assert subscription_guard(room, [], user, NONE) is None
+    # The blanket `room:view` is not "spectator permission" (room:view_public
+    # is); dropping it here matches DECISIONS §1.9's literal wording and the
+    # private-room fix above for consistency.
+    assert subscription_guard(room, [], user, BLANKET_VIEW) is None
 
     _assert_player(subscription_guard(room, [], user, VIEW_PUBLIC), seat=None)
-    _assert_player(subscription_guard(room, [], user, VIEW), seat=None)
     _assert_player(subscription_guard(room, [_seat(room, user)], user, NONE), seat=0)
-
-
-def test_public_anonymous_still_needs_a_qualifying_permission() -> None:
-    """Unlike private, public has no explicit anonymous veto in the guard's
-    contract: an (unrealistic, since perms come from an authenticated caller)
-    anonymous+room:view_public combination is allowed by the letter of the
-    spec. Documented here rather than silently "fixed"."""
-    room = _room("public")
-    assert subscription_guard(room, [], None, NONE) is None
-    _assert_player(subscription_guard(room, [], None, VIEW_PUBLIC), seat=None)
 
 
 def test_a_seat_belonging_to_someone_else_does_not_count() -> None:
@@ -121,4 +130,4 @@ def test_a_seat_belonging_to_someone_else_does_not_count() -> None:
     onlooker = _user()
     seats = [_seat(room, seated_user)]
     assert subscription_guard(room, seats, onlooker, NONE) is None
-    _assert_player(subscription_guard(room, seats, onlooker, VIEW), seat=None)
+    assert subscription_guard(room, seats, onlooker, BLANKET_VIEW) is None

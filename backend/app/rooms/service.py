@@ -19,25 +19,30 @@ from __future__ import annotations
 import contextlib
 import secrets
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import CursorResult, or_, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, func, select
 
 from app import settings_store
 from app.agents import AgentController, get_persona
 from app.authz.service import grant_role
+from app.core.db import engine
 from app.events import PUBLIC, EventBus, RoomCreated, SeatFilled, make_event
 from app.games import Seat, get_game
 from app.models import Room, RoomCreate, RoomSeat, User, get_datetime_utc
 from app.referee import GameRunner, HumanController, SeatController, SeatSpec
 from app.rooms.codes import new_join_code, normalise_code
 from app.rooms.queue import JoinQueue, QueueStatus
+from app.telemetry import get_logger
 
 if TYPE_CHECKING:
     from app.llm import ModelRegistry
+
+log = get_logger("rooms")
 
 _MAX_CODE_ATTEMPTS = 10
 # ponytail: no user is actually enqueued at create-time (capacity_check only
@@ -45,6 +50,23 @@ _MAX_CODE_ATTEMPTS = 10
 # always None. Real per-user positions belong to a future enqueue-on-capacity
 # flow; not asked for by this phase.
 _CAPACITY_PROBE_KEY = "capacity-probe"
+# Postgres advisory lock (session/xact-scoped) serialising the
+# check-capacity-then-flip-to-in_progress critical section in `start()` across
+# every worker process, not just this one -- see `start()` for why a Python
+# lock alone would not be enough.
+_START_LOCK_KEY = 0x726F6F6D_73746172  # arbitrary bigint, "room" + "star" as bytes
+_ROOM_CODE_UNIQUE_INDEX = "ix_room_code"
+
+
+def _is_code_collision(exc: IntegrityError) -> bool:
+    """True only for a violation of the room-code unique index, not any other
+    constraint an insert happens to hit (a bad FK, say) -- those must not be
+    silently retried and reported as the misleading "no code available"."""
+    diag = getattr(exc.orig, "diag", None)
+    name = getattr(diag, "constraint_name", None)
+    if name is not None:
+        return bool(name == _ROOM_CODE_UNIQUE_INDEX)
+    return _ROOM_CODE_UNIQUE_INDEX in str(exc.orig or exc)
 
 
 class RoomError(Exception):
@@ -133,11 +155,12 @@ class RoomService:
             if seat_spec.kind == "agent":
                 model = seat_spec.model or self.registry.default_model
                 if model not in self.registry.models:
-                    msg = (
-                        f"unknown model {model!r}; known: "
-                        f"{', '.join(self.registry.models)}"
+                    log.info(
+                        "room create rejected: unknown model %r (known: %s)",
+                        model,
+                        ", ".join(self.registry.models),
                     )
-                    raise ValueError(msg)
+                    raise ValueError(f"unknown model: {model}")
                 persona_name = seat_spec.persona or "steady"
                 try:
                     get_persona(persona_name)
@@ -146,10 +169,21 @@ class RoomService:
                 resolved_models.append(model)
                 resolved_personas.append(persona_name)
             else:
-                for field_name in ("user_id", "invited_user_id"):
-                    uid = getattr(seat_spec, field_name)
-                    if uid is not None and self.session.get(User, uid) is None:
-                        raise ValueError(f"unknown user: {uid}")
+                # A seat's `user_id` may only ever be the creator seating
+                # themself -- seating anyone else without their consent would
+                # be mass assignment (the seat would show as "filled" with no
+                # accept/decline step). Seating someone else goes through
+                # `invited_user_id` + that person calling `join_by_code`.
+                if seat_spec.user_id is not None and seat_spec.user_id != creator.id:
+                    raise ValueError(
+                        "a seat's user_id may only be the creator's own id; "
+                        "invite another user via invited_user_id instead"
+                    )
+                if (
+                    seat_spec.invited_user_id is not None
+                    and self.session.get(User, seat_spec.invited_user_id) is None
+                ):
+                    raise ValueError(f"unknown user: {seat_spec.invited_user_id}")
                 resolved_models.append(None)
                 resolved_personas.append(None)
 
@@ -203,8 +237,10 @@ class RoomService:
             self.session.add(room)
             try:
                 self.session.commit()
-            except IntegrityError:
+            except IntegrityError as exc:
                 self.session.rollback()
+                if not _is_code_collision(exc):
+                    raise  # some other constraint failed; don't mask it as "no code"
                 continue
             return room
         msg = "could not allocate a unique room code"
@@ -250,32 +286,21 @@ class RoomService:
         if room.status != "waiting":
             raise RoomNotWaitingError(f"room {room.id} is {room.status}")
 
-        seats = self.seats(room.id)
         already = next(
-            (s for s in seats if s.kind == "human" and s.user_id == user.id), None
+            (
+                s
+                for s in self.seats(room.id)
+                if s.kind == "human" and s.user_id == user.id
+            ),
+            None,
         )
         if already is not None:
             return already
 
-        target = next(
-            (
-                s
-                for s in seats
-                if s.kind == "human"
-                and s.status == "open"
-                and s.invited_user_id == user.id
-            ),
-            None,
-        ) or next((s for s in seats if s.kind == "human" and s.status == "open"), None)
+        target = self._claim_open_seat(room.id, user.id)
         if target is None:
             raise RoomFullError(f"room {room.id} has no open seat", room_id=room.id)
 
-        target.status = "filled"
-        target.user_id = user.id
-        target.invited_user_id = None
-        self.session.add(target)
-        self.session.commit()
-        self.session.refresh(target)
         await self.bus.publish(
             make_event(
                 str(room.id),
@@ -284,6 +309,68 @@ class RoomService:
             )
         )
         return target
+
+    def _claim_open_seat(
+        self, room_id: uuid.UUID, user_id: uuid.UUID
+    ) -> RoomSeat | None:
+        """Atomically fill the best open seat for ``user_id``: their own
+        reserved invite first, else any seat not reserved for someone else
+        (a seat still `invited_user_id`-reserved for a different user is
+        never taken by the fallback -- that would silently lock the intended
+        invitee out).
+
+        The UPDATE's ``WHERE`` clause, not the prior read, is what actually
+        prevents two concurrent callers from both filling the same seat:
+        Postgres serialises concurrent UPDATE statements to the same row, so exactly
+        one commits with ``rowcount == 1`` and the loser retries against
+        whatever is left, rather than both believing they won a Python-level
+        check-then-write race.
+        """
+        for _ in range(_MAX_CODE_ATTEMPTS):
+            seats = self.seats(room_id)
+            candidate = next(
+                (
+                    s
+                    for s in seats
+                    if s.kind == "human"
+                    and s.status == "open"
+                    and s.invited_user_id == user_id
+                ),
+                None,
+            ) or next(
+                (
+                    s
+                    for s in seats
+                    if s.kind == "human"
+                    and s.status == "open"
+                    and s.invited_user_id is None
+                ),
+                None,
+            )
+            if candidate is None:
+                return None
+            # A Core `UPDATE ... WHERE` (not a `select()`) is exactly the
+            # atomicity primitive this needs, and the row count it returns is
+            # only available via the plain `execute()`, not `exec()`.
+            result = self.session.execute(  # ty: ignore[deprecated]
+                update(RoomSeat)
+                .where(
+                    col(RoomSeat.id) == candidate.id,
+                    col(RoomSeat.status) == "open",
+                    or_(
+                        col(RoomSeat.invited_user_id).is_(None),
+                        col(RoomSeat.invited_user_id) == user_id,
+                    ),
+                )
+                .values(status="filled", user_id=user_id, invited_user_id=None)
+            )
+            self.session.commit()
+            rowcount = cast("CursorResult[Any]", result).rowcount
+            if rowcount == 1:
+                self.session.refresh(candidate)
+                return candidate
+            # lost the race for this seat (or it just changed underfoot); retry
+        return None
 
     def leave(self, user: User, room_id: uuid.UUID) -> None:
         room = self.get(room_id)
@@ -308,6 +395,13 @@ class RoomService:
 
     async def force_start(self, user: User, room_id: uuid.UUID) -> Room:
         del user  # authorised by the caller (route); nothing more to check here
+        # Staged, not committed: if `start()` below raises (room full some
+        # other way, capacity exceeded, ...), these human seats must not be
+        # left permanently converted to agent seats with the room stuck
+        # "waiting". `start()`'s own `self.seats(room_id)` query autoflushes
+        # this session's pending changes first, so it still sees the backfill;
+        # everything commits together in `start()`'s single final commit, or
+        # none of it does if `start()` raises and the session later rolls back.
         for seat in self.seats(room_id):
             if seat.kind == "human" and seat.status == "open":
                 seat.kind = "agent"
@@ -317,7 +411,6 @@ class RoomService:
                 seat.user_id = None
                 seat.invited_user_id = None
                 self.session.add(seat)
-        self.session.commit()
         return await self.start(room_id)
 
     async def start(self, room_id: uuid.UUID) -> Room:
@@ -359,13 +452,61 @@ class RoomService:
                     s.seat,
                 )
 
-        self.runner.start(str(room_id), room.game, room.seed, specs, controllers)
+        # Serialises the check-capacity-then-flip-to-"in_progress" step across
+        # every worker process (a Postgres advisory lock, not a Python one, so
+        # it holds even if this app ever runs with more than one worker).
+        # `capacity_check()` alone (also used by `create()`) only reads the
+        # current count; without this lock two concurrent `start()` calls
+        # could both pass that read before either commits, overshooting
+        # `max_concurrent_games`. Xact-scoped: released automatically at the
+        # commit/rollback that ends this method.
+        # `session.exec()` is SQLModel's wrapper for `select()` returning model
+        # rows; a bare `text()` DB call has no model to return, so the plain
+        # SQLAlchemy `execute()` is the only option here.
+        self.session.execute(  # ty: ignore[deprecated]
+            text("SELECT pg_advisory_xact_lock(:key)"), {"key": _START_LOCK_KEY}
+        )
+        await self.capacity_check()
+        # Re-check status: something else could have started or stopped this
+        # exact room while we were building specs or waiting for the lock.
+        self.session.refresh(room)
+        if room.status != "waiting":
+            raise RoomNotWaitingError(f"room {room_id} is {room.status}")
+
+        try:
+            self.runner.start(
+                str(room_id),
+                room.game,
+                room.seed,
+                specs,
+                controllers,
+                on_finished=self._finish_room,
+            )
+        except ValueError as exc:
+            # GameRunner's own "already running" guard; surfaced as the same
+            # 409 the rest of this method uses for a room that isn't "waiting".
+            raise RoomNotWaitingError(str(exc)) from exc
         room.status = "in_progress"
         room.started_at = get_datetime_utc()
         self.session.add(room)
         self.session.commit()
         self.session.refresh(room)
         return room
+
+    async def _finish_room(self, room_id: str, outcome: str) -> None:
+        """``GameRunner``'s completion callback (``outcome`` is "finished" or
+        "stopped"). Runs long after the request that called ``start()`` has
+        ended and its ``Session`` closed, so it opens its own. Only updates a
+        room still "in_progress": an explicit ``stop()`` already wrote
+        "stopped" itself and this must not race or double-write over it.
+        """
+        with Session(engine) as session:
+            room = session.get(Room, uuid.UUID(room_id))
+            if room is not None and room.status == "in_progress":
+                room.status = outcome
+                room.finished_at = get_datetime_utc()
+                session.add(room)
+                session.commit()
 
     async def stop(self, room_id: uuid.UUID, reason: str) -> Room:
         room = self.get(room_id)
