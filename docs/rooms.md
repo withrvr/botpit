@@ -1,8 +1,9 @@
 # Rooms
 
 Status: schema + service + HTTP routes + subscription guard done in Phase 7.
-The move-submission endpoint and any websocket/SSE transport are explicitly
-Phase 8 (see "What Phase 7 does not do" below).
+Phase 8 adds the minimal live-play surface a human plays through: `/view`,
+`/moves`, `/moves/schema`, `/events` (HTTP polling, not a websocket/SSE
+transport — that stays Phase 10's job, see "Left for later" below).
 
 A room is one instance of a game: game type, seat list (each seat human
 open / human invited / AI model+persona), status
@@ -155,6 +156,21 @@ or calls another async method; everything else (`get`, `list_public`,
   enqueued at create-time in this phase (see below), so it always reads
   `position=None`; the shape is still returned so a future enqueue-on-capacity
   flow is a pure addition, not a response-shape change.
+- **`own_seat(user, room_id) -> RoomSeat`** (Phase 8) — the caller's own
+  *human* seat in the room, server-derived from `RoomSeat.user_id`, never
+  client-supplied. `NotSeatedError` if the caller holds none.
+- **`live_view(user, room_id) -> dict`** (Phase 8) — `own_seat` then
+  `view_payload(running.game, running.state, seat.seat)` straight from
+  `GameRunner`'s in-memory `RunningGame`, never the database (the DB has no
+  per-turn game state to read). `RoomNotRunningError` if `GameRunner` has no
+  entry for this room (never started, already finished, or stopped).
+- **`submit_move(user, room_id, move: dict) -> None`** (Phase 8) — `own_seat`
+  + `RoomNotRunningError` as above, plus `NotYourTurnError` if
+  `game.current_seat(state) != seat.seat`: submitting anyway would only queue
+  silently and be dropped by the next turn's `HumanController.begin_turn()`,
+  so this gives an immediate 409 instead of a silent drop. On success,
+  forwards the raw move dict to `GameRunner.submit_move` for validation and
+  application by the referee.
 
 ### Room lifecycle: `waiting` -> `in_progress` -> `finished` / `stopped`
 
@@ -179,13 +195,15 @@ lingering `"in_progress"`).
 
 ### Left for later (explicitly, not silently)
 
-- **No move-submission endpoint.** `HumanController` seats are real and
-  wired into a real running game, but nothing calls
-  `GameRunner.submit_move`; that endpoint is Phase 8's job by design (see
-  the Phase 7 build brief).
-- **No websocket/SSE transport.** `subscription_guard` (below) is written
-  and tested now, but nothing calls it yet — Phase 8/10 wires a transport to
-  it.
+- **No websocket/SSE transport.** Phase 8 wires `subscription_guard` to a
+  real transport for the first time, but it is HTTP polling (`GET
+  /{room_id}/events?since=...`), not push. A real-time transport (websocket
+  or SSE) is Phase 10's job; the polling routes stay as a working fallback
+  either way.
+- **No admin multi-seat "focus view."** Phase 8's `/view` is one caller's
+  own seat only (`own_seat` refuses anyone without a human seat, even the
+  creator) — an admin/spectator view across every seat at once is Phase 10
+  per DECISIONS §1.7.
 - **The join queue is read-only in this phase.** `capacity_check` reads
   `queue.snapshot` for its error payload, and the `/rooms/join` route reads
   it for a full room's 409 body, but neither `create` nor `join_by_code`
@@ -201,9 +219,13 @@ lingering `"in_progress"`).
 ## `subscription_guard` (`app/rooms/guard.py`)
 
 `subscription_guard(room, seats, user: User | None, perms: frozenset[str])
--> Subscriber | None` resolves visibility + own-seat for one subscription;
-the websocket/SSE transport (Phase 8/10) calls it once per connect and feeds
-the result to `app.events.filter_for_subscriber` for every event after that.
+-> Subscriber | None` resolves visibility + own-seat for one subscription.
+Phase 8's `GET /{room_id}/events` is the first real caller: `_subscriber_for`
+(in `app/api/routes/rooms.py`) calls it once per poll and feeds the result to
+`app.events.filter_for_subscriber` for every event in that page — a
+non-subscriber (denied) always gets 404, matching `GET /{room_id}`'s "never
+leak existence" rule. A future push transport (Phase 10) calls it once per
+connect instead of once per poll; the guard's own logic does not change.
 
 | room visibility | caller | outcome |
 |---|---|---|
@@ -253,6 +275,10 @@ computes `privileged`/`viewer_id` per caller and redacts accordingly; `POST
 | `POST /{room_id}/force-start` | same as `start` | backfills then starts |
 | `POST /{room_id}/stop` | `room:force_stop` for the room (no creator bypass) | always safe to call |
 | `GET /{room_id}/queue` | authenticated | the caller's own `QueueStatus` for `room:{room_id}`; 404 if not queued |
+| `GET /{room_id}/view` | own human seat only | the caller's live `PlayerView` (`view_payload`, straight from `GameRunner`, never the DB); `NotSeatedError` -> 403, `RoomNotRunningError` -> 409 |
+| `POST /{room_id}/moves` | own human seat only | body `{"move": {...}}`, forwarded verbatim to `GameRunner.submit_move` for the caller's own seat (server-derived, never client-supplied); `NotSeatedError` -> 403, `RoomNotRunningError` -> 409, `NotYourTurnError` -> 409 |
+| `GET /{room_id}/moves/schema` | `subscription_guard`-admitted (seated or privileged) | `app.games.move_schema.move_json_schema(game)` — a terminal client's guide to constructing a valid move body; denial -> 404 |
+| `GET /{room_id}/events` | `subscription_guard`-admitted (seated or privileged) | `?since=<stream_id>&limit=200`; polls `EventBus.history` then drops anything `filter_for_subscriber` denies for the caller's resolved `Subscriber`; returns `{"events": [...], "next_since": <last event's stream_id>}` for the next poll; denial -> 404 |
 
 `CapacityExceededError`'s 429 body and `RoomFullError`'s 409-on-join body are
 both `{"detail": "...", "queue": {"position", "length", "eta_seconds"}}` —

@@ -9,7 +9,7 @@ that module.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
 import pytest
 import redis as sync_redis
@@ -44,6 +44,20 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         for item in items:
             if item.get_closest_marker("redis"):
                 item.add_marker(skip)
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> Iterator[None]:
+    """Several tests reuse the same superuser token across many room creates;
+    without this, ``RATE_LIMIT_ROOM_CREATE`` (5/60) starts rejecting later
+    tests with a real 429 that has nothing to do with what each test checks."""
+    r = sync_redis.Redis.from_url(_settings.REDIS_URL, decode_responses=True)
+    for key in r.scan_iter(match="rl:room:*"):
+        r.delete(key)
+    yield
+    for key in r.scan_iter(match="rl:room:*"):
+        r.delete(key)
+    r.close()
 
 
 @pytest.fixture

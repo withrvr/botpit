@@ -90,11 +90,30 @@ class HumanController:
     kind: ClassVar[SeatKind] = "human"
 
     def __init__(self) -> None:
-        self._pending: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        # maxsize=1: only the latest not-yet-consumed submission is ever
+        # meaningful for a single turn -- `_put` below replaces rather than
+        # queues, so this bounds memory regardless of how many times a
+        # client calls `submit` before the referee drains one.
+        self._pending: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=1)
         self.view: PlayerView | None = None
         self.last_error: str | None = None
+        # Captured here because construction always happens on the event
+        # loop thread (inside `RoomService.start`, an `async def`); `submit`
+        # is reached from an HTTP route running in Starlette's threadpool, a
+        # different OS thread from the referee's `decide()` awaiting this
+        # same queue -- `asyncio.Queue` is not safe for a cross-thread
+        # `put_nowait`, only for `call_soon_threadsafe`.
+        self._loop = asyncio.get_running_loop()
 
     def submit(self, move: dict[str, Any]) -> None:
+        self._loop.call_soon_threadsafe(self._put, move)
+
+    def _put(self, move: dict[str, Any]) -> None:
+        """Runs on the loop thread. The latest submission always wins over
+        one not yet consumed -- never grows unbounded no matter how many
+        times a client calls `submit` in one turn."""
+        while not self._pending.empty():
+            self._pending.get_nowait()
         self._pending.put_nowait(move)
 
     def begin_turn(self) -> None:

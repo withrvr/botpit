@@ -9,17 +9,21 @@ position) are ``async def`` so they can ``await`` those calls directly.
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Sequence
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.api.deps import CurrentUser, JoinQueueDep, RoomServiceDep, SessionDep
 from app.authz import P, current_permissions, require_permission
 from app.core.config import settings
+from app.events import Subscriber, filter_for_subscriber
+from app.games import get_game
+from app.games.move_schema import move_json_schema
 from app.models import (
     Message,
     Room,
@@ -31,7 +35,14 @@ from app.models import (
     User,
 )
 from app.ratelimit import rate_limit_from_setting
-from app.rooms.service import RoomFullError, RoomNotWaitingError
+from app.rooms.guard import subscription_guard
+from app.rooms.service import (
+    NotSeatedError,
+    NotYourTurnError,
+    RoomFullError,
+    RoomNotRunningError,
+    RoomNotWaitingError,
+)
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
 
@@ -269,3 +280,137 @@ async def room_queue(
     if status.position is None:
         raise HTTPException(status_code=404, detail="not queued")
     return status
+
+
+# -- live play (Phase 8: the minimal API a human plays through) -------------
+#
+# No websocket/SSE transport yet -- a terminal or script client polls
+# GET /events with the cursor it last saw, reads GET /view to know whose
+# turn it is and what it may do, and posts to POST /moves when it is theirs.
+# subscription_guard (app/rooms/guard.py, written and table-tested in Phase 7)
+# is used here for the first time by a real transport.
+
+
+def _subscriber_for(
+    service: RoomServiceDep,
+    session: SessionDep,
+    request: Request,
+    user: User,
+    room_id: uuid.UUID,
+) -> Subscriber:
+    try:
+        room = service.get(room_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Room not found") from None
+    perms = current_permissions(request, session, user, room_id)
+    subscriber = subscription_guard(room, service.seats(room_id), user, perms)
+    if subscriber is None:
+        # Never distinguish "private"/denied from "does not exist" (matches
+        # get_room's own rule).
+        raise HTTPException(status_code=404, detail="Room not found")
+    return subscriber
+
+
+@router.get("/{room_id}/view")
+def room_view(*, service: RoomServiceDep, user: CurrentUser, room_id: uuid.UUID) -> Any:
+    """The caller's own current ``PlayerView`` of the live game. Always the
+    live ``GameState`` under ``GameRunner``, never the database (which holds
+    only room/seat metadata, not game state)."""
+    try:
+        return service.live_view(user, room_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Room not found")
+    except NotSeatedError:
+        raise HTTPException(status_code=403, detail="not seated in this room")
+    except RoomNotRunningError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+_MAX_MOVE_BYTES = 4096  # generous for any legal move dict (card index, color, ...)
+
+
+class MoveSubmission(BaseModel):
+    move: dict[str, Any]
+
+    @field_validator("move")
+    @classmethod
+    def _bounded(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if len(json.dumps(value)) > _MAX_MOVE_BYTES:
+            msg = f"move body exceeds {_MAX_MOVE_BYTES} bytes"
+            raise ValueError(msg)
+        return value
+
+
+@router.post(
+    "/{room_id}/moves",
+    response_model=Message,
+    dependencies=[
+        Depends(rate_limit_from_setting("room:move", settings.RATE_LIMIT_ROOM_MOVE))
+    ],
+)
+def submit_move(
+    *,
+    service: RoomServiceDep,
+    user: CurrentUser,
+    room_id: uuid.UUID,
+    body: MoveSubmission,
+) -> Any:
+    """Forwards the raw move dict to the caller's own seat. The referee (not
+    this route) validates it via the game's ``parse_move``/``apply`` and
+    reports a rejection as a seat-visible ``game.move_rejected`` event on
+    ``GET /events`` -- poll that to find out whether it was accepted."""
+    try:
+        service.submit_move(user, room_id, body.move)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Room not found")
+    except NotSeatedError:
+        raise HTTPException(status_code=403, detail="not seated in this room")
+    except RoomNotRunningError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except NotYourTurnError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return Message(message="submitted")
+
+
+@router.get("/{room_id}/moves/schema")
+def moves_schema(
+    *,
+    service: RoomServiceDep,
+    session: SessionDep,
+    request: Request,
+    user: CurrentUser,
+    room_id: uuid.UUID,
+) -> Any:
+    """The game's move JSON Schema, for a terminal client building a valid
+    ``POST /moves`` body. Gated identically to ``GET /events``/``GET
+    /{room_id}`` -- it reveals nothing beyond the game type those already
+    show."""
+    _subscriber_for(service, session, request, user, room_id)
+    room = service.get(room_id)
+    return move_json_schema(get_game(room.game))
+
+
+@router.get("/{room_id}/events")
+async def room_events(
+    *,
+    service: RoomServiceDep,
+    session: SessionDep,
+    request: Request,
+    user: CurrentUser,
+    room_id: uuid.UUID,
+    since: Annotated[str | None, Query(pattern=r"^\d+-\d+$")] = None,
+    limit: int = 200,
+) -> Any:
+    """Poll the room's event stream from ``since`` (an event's own
+    ``stream_id``; omit for full history). Filtered per
+    ``app.events.filter_for_subscriber`` for the ``Subscriber``
+    ``subscription_guard`` resolves for this caller -- a player sees public
+    events plus their own seat's; nobody sees another seat's without
+    ``room:view_seat_detail``."""
+    subscriber = _subscriber_for(service, session, request, user, room_id)
+    events = await service.bus.history(str(room_id), since=since, limit=limit)
+    visible = [e for e in events if filter_for_subscriber(e, subscriber) is not None]
+    return {
+        "events": [e.model_dump(mode="json") for e in visible],
+        "next_since": events[-1].stream_id if events else since,
+    }

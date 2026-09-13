@@ -271,6 +271,18 @@ export type Message = {
 };
 
 /**
+ * MoveSubmission
+ */
+export type MoveSubmission = {
+    /**
+     * Move
+     */
+    move: {
+        [key: string]: unknown;
+    };
+};
+
+/**
  * NewPassword
  */
 export type NewPassword = {
@@ -1952,6 +1964,135 @@ export type roomsRoomQueueError = roomsRoomQueueErrors[keyof roomsRoomQueueError
 export type roomsRoomQueueResponses = {
     /**
      * Response Rooms-Room Queue
+     *
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type roomsRoomViewData = {
+    body?: never;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rooms/{room_id}/view';
+};
+
+export type roomsRoomViewErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsRoomViewError = roomsRoomViewErrors[keyof roomsRoomViewErrors];
+
+export type roomsRoomViewResponses = {
+    /**
+     * Response Rooms-Room View
+     *
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type roomsSubmitMoveData = {
+    body: MoveSubmission;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rooms/{room_id}/moves';
+};
+
+export type roomsSubmitMoveErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsSubmitMoveError = roomsSubmitMoveErrors[keyof roomsSubmitMoveErrors];
+
+export type roomsSubmitMoveResponses = {
+    /**
+     * Successful Response
+     */
+    200: Message;
+};
+
+export type roomsSubmitMoveResponse = roomsSubmitMoveResponses[keyof roomsSubmitMoveResponses];
+
+export type roomsMovesSchemaData = {
+    body?: never;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rooms/{room_id}/moves/schema';
+};
+
+export type roomsMovesSchemaErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsMovesSchemaError = roomsMovesSchemaErrors[keyof roomsMovesSchemaErrors];
+
+export type roomsMovesSchemaResponses = {
+    /**
+     * Response Rooms-Moves Schema
+     *
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type roomsRoomEventsData = {
+    body?: never;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: {
+        /**
+         * Since
+         */
+        since?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/rooms/{room_id}/events';
+};
+
+export type roomsRoomEventsErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsRoomEventsError = roomsRoomEventsErrors[keyof roomsRoomEventsErrors];
+
+export type roomsRoomEventsResponses = {
+    /**
+     * Response Rooms-Room Events
      *
      * Successful Response
      */
