@@ -16,7 +16,9 @@ Ollama-/OpenAI-compatible endpoint), and the model per seat is swappable.
 Each AI player has its own persona, so table chat reads like a table full
 of distinct characters, not one voice repeated four times. Any privileged
 spectator or admin can watch a game live: every seat's hand, every agent's
-private reasoning as it's produced, and the public chat, all in real time.
+private reasoning as it's produced, and the public chat, all as the game
+progresses (currently via HTTP polling — see
+[`docs/api/api-reference.md`](docs/api/api-reference.md)).
 
 ## Quickstart
 

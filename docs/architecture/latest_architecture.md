@@ -8,8 +8,10 @@
 
 As of this writing (branched from `phase-9.5-stabilize-and-rebrand`, itself
 branched from `master` right after Phase 9 merged): Phases 0-9 are done.
-**Phase 10 (frontend) has not started** — `backend/app/frontend` is empty
-except for the template's scaffold, and every "route" below is an HTTP JSON
+**Phase 10 (frontend) has not started** — `frontend/` is still the
+template's scaffold (this same 9.5 phase only touched it cosmetically:
+title, favicon, the logo/footer components, per the rebranding work --
+no real pages, no app logic), and every "route" below is an HTTP JSON
 API with no real-time push transport in front of it yet (Phase 8 built HTTP
 polling instead; see `docs/rooms.md`'s "left for later" notes and
 `docs/api/api-reference.md` for the polling routes' shapes).
