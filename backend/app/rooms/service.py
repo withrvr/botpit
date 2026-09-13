@@ -29,6 +29,7 @@ from sqlmodel import Session, col, func, select
 
 from app import settings_store
 from app.agents import AgentController, get_persona
+from app.api.views import view_payload
 from app.authz.service import grant_role
 from app.core.db import engine
 from app.events import PUBLIC, EventBus, RoomCreated, SeatFilled, make_event
@@ -88,6 +89,22 @@ class RoomFullError(RoomError):
 
 class RoomNotWaitingError(RoomError):
     """The room has already started, finished, or been stopped."""
+
+
+class NotSeatedError(RoomError):
+    """The caller holds no human seat in this room."""
+
+
+class RoomNotRunningError(RoomError):
+    """No live game for this room under ``GameRunner`` (never started,
+    finished, or stopped) -- there is no ``GameState`` to read or feed."""
+
+
+class NotYourTurnError(RoomError):
+    """The caller's seat is not ``current_seat`` right now. Submitting
+    anyway would just queue silently and be dropped by the next turn's
+    ``HumanController.begin_turn()``; this gives an immediate, clear 409
+    instead of that silent drop."""
 
 
 class CapacityExceededError(RoomError):
@@ -519,3 +536,48 @@ class RoomService:
         self.session.commit()
         self.session.refresh(room)
         return room
+
+    # -- live play (Phase 8: the minimal API a human plays through) --------
+
+    def own_seat(self, user: User, room_id: uuid.UUID) -> RoomSeat:
+        """The caller's own human seat in this room. Never trust a
+        client-supplied seat number for anything -- it is always derived
+        from who is actually seated, here."""
+        seat = next(
+            (
+                s
+                for s in self.seats(room_id)
+                if s.kind == "human" and s.user_id == user.id
+            ),
+            None,
+        )
+        if seat is None:
+            raise NotSeatedError(f"not seated in room {room_id}")
+        return seat
+
+    def live_view(self, user: User, room_id: uuid.UUID) -> dict[str, Any]:
+        """The caller's own current ``PlayerView`` of the *actually running*
+        game (``GameRunner``'s live ``GameState``, not anything in the
+        database -- the DB only ever holds room/seat metadata)."""
+        seat = self.own_seat(user, room_id)
+        try:
+            running = self.runner.get(str(room_id))
+        except KeyError as exc:
+            raise RoomNotRunningError(f"room {room_id} has no live game") from exc
+        return view_payload(running.game, running.state, seat.seat)
+
+    def submit_move(self, user: User, room_id: uuid.UUID, move: dict[str, Any]) -> None:
+        """Forwards ``move`` to the caller's own seat's ``HumanController``.
+        Validation and legality are the referee's job (it calls
+        ``game.parse_move``/``apply`` and feeds any rejection back as a
+        seat-visible ``game.move_rejected`` event, retrying); this method
+        only checks identity (own seat) and turn order (a friendlier 409
+        than a silently dropped, out-of-turn submission)."""
+        seat = self.own_seat(user, room_id)
+        try:
+            running = self.runner.get(str(room_id))
+        except KeyError as exc:
+            raise RoomNotRunningError(f"room {room_id} has no live game") from exc
+        if running.game.current_seat(running.state) != seat.seat:
+            raise NotYourTurnError(f"seat {seat.seat} is not the current turn")
+        self.runner.submit_move(str(room_id), seat.seat, move)

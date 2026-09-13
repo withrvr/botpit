@@ -34,7 +34,7 @@ branch; only the phase branch opens a PR into `master`.
 | 5 | Agent client, swappable backend | done 2026-09-12 (PR #10) |
 | 6 | Auth, accounts, roles/permissions | done 2026-09-12 (branch phase-6-auth, PR pending) |
 | 7 | Rooms, seats, capacity, join queue | done 2026-09-13 (branch phase-7-rooms) |
-| 8 | First live mixed game (terminal + API) | |
+| 8 | First live mixed game (terminal + API) | done 2026-09-13 (branch phase-8-live-game, PR pending) |
 | 9 | Persistence and replay | |
 | 10 | Frontend: play, spectate, admin, focus view | |
 | 11 | Chat and personas | |
@@ -134,6 +134,49 @@ HTTP routes, `SubscriptionGuard`, `GameRunner`/`ModelRegistry` lifespan wiring.
   fast via `PolicyController` — no real LLM calls needed), plus targeted
   additions to `test_room_service.py`/`test_rooms_api.py`/`test_guard.py`
   for every fix above. Full suite: 720 tests, gate clean.
+
+## Phase 8 — done 2026-09-13 (branch phase-8-live-game)
+
+The minimal live-play surface a human plays through: `/view`, `/moves`,
+`/moves/schema`, `/events`. HTTP polling, not a websocket/SSE transport (that
+stays Phase 10's job) — this is the first real caller of Phase 7's
+`subscription_guard`.
+
+- `app/rooms/service.py`: three new `RoomService` methods and exceptions.
+  `own_seat(user, room_id) -> RoomSeat` resolves the caller's own human seat
+  server-side from `RoomSeat.user_id` (`NotSeatedError` if none — never
+  trusts a client-supplied seat number). `live_view(user, room_id) -> dict`
+  reads the caller's live `PlayerView` straight from `GameRunner`'s
+  in-memory `RunningGame` via `app.api.views.view_payload` (never the DB,
+  which holds no per-turn state) — `RoomNotRunningError` if `GameRunner` has
+  no entry (never started, finished, or stopped). `submit_move(user,
+  room_id, move: dict) -> None` adds a `NotYourTurnError` check against
+  `game.current_seat(state)` before forwarding to
+  `GameRunner.submit_move`, so an out-of-turn submission gets an immediate
+  409 instead of silently queuing and being dropped by the next turn's
+  `HumanController.begin_turn()`.
+- `app/api/routes/rooms.py`: `GET /{room_id}/view`, `POST /{room_id}/moves`,
+  `GET /{room_id}/moves/schema`, `GET /{room_id}/events`. A shared
+  `_subscriber_for` helper wraps `subscription_guard` + `current_permissions`
+  for `moves/schema` and `events` (denial -> 404, matching every other
+  room route's "never leak existence" rule); `view`/`moves` use `own_seat`
+  instead (denial -> 403, since these are about playing your own seat, not
+  administrative visibility). `events` polls `EventBus.history(room_id,
+  since, limit)` and drops anything `filter_for_subscriber` denies for the
+  resolved `Subscriber`, returning `{"events": [...], "next_since": ...}`
+  for the next poll.
+- Deferred, precisely: a real push transport (websocket/SSE) and an
+  admin/spectator multi-seat "focus view" are both Phase 10's job — the
+  polling routes are a working, tested fallback either way, not a stub.
+- Tests: `tests/rooms/test_rooms_live.py`, 11 new tests against a real
+  2-human-seat `uno_classic` game (real `GameRunner`, no mocks): auth-gate
+  smoke tests per route (`NotSeatedError`/`RoomNotRunningError`/
+  `NotYourTurnError` -> 403/409/409), a full submit-and-verify-via-`/events`
+  happy path, and two security tests proving `game.view_updated` (a seat's
+  full hand, `SeatVisibility`) never reaches the other seat through
+  `/events` for a non-privileged player, while the privileged creator sees
+  both. Full suite: 731 tests, ruff/ruff-format/mypy strict/ty/prek all
+  clean.
 
 ## Phase 2 — done pending PR review
 

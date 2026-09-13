@@ -8,11 +8,9 @@ tests never wait on a real model call, only on the room/game *starting*.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator
 from typing import Any
 
 import pytest
-import redis as sync_redis
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -26,21 +24,6 @@ from tests.utils.utils import random_email, random_lower_string
 pytestmark = pytest.mark.redis
 
 API = settings.API_V1_STR
-
-
-@pytest.fixture(autouse=True)
-def _reset_rate_limits() -> Iterator[None]:
-    """The superuser is reused (module-scoped token) across many room
-    creates in this file; without this, ``RATE_LIMIT_ROOM_CREATE`` (5/60)
-    starts rejecting later tests with a real 429 that has nothing to do
-    with what each test is actually checking."""
-    r = sync_redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
-    for key in r.scan_iter(match="rl:room:*"):
-        r.delete(key)
-    yield
-    for key in r.scan_iter(match="rl:room:*"):
-        r.delete(key)
-    r.close()
 
 
 def _body(
