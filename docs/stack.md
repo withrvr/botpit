@@ -32,17 +32,20 @@ not repeat those documents' detail — it summarizes and links to them.
   plan of async SQLAlchemy 2.0 across SQLite and Postgres. DB work inside
   `async def` route handlers goes through `run_in_threadpool`; the engine
   itself (`backend/app/core/db.py`) is a plain sync `create_engine`.
-- **Postgres** (17 locally, `postgres:18` in the deploy-shaped compose file)
-  is the only database. The SQLite dual-dialect layer from Phase 1 was
-  dropped at the Phase 2b pivot — one dialect, one set of column types, no
-  `if dialect == ...` branches anywhere in the codebase.
+- **Postgres 18** (`postgres:18` in `compose.yml`, the same image for local
+  dev and any deploy-shaped setup — one pin, not a dev/deploy split) is the
+  only database. The SQLite dual-dialect layer from Phase 1 was dropped at
+  the Phase 2b pivot — one dialect, one set of column types, no `if dialect
+  == ...` branches anywhere in the codebase. PostgreSQL 19 entered beta in
+  2026; not adopted here until it ships stable (`docs/development/dependency-audit.md`).
 - **Alembic** — schema migrations, run via `scripts/prestart.sh` before the
   server starts (not in the app lifespan, unlike the pre-template design).
   See `docs/persistence.md`.
-- **Redis** — two independent uses, never a source of truth for game state
-  (DECISIONS.md §12): the pluggable event bus's `RedisStreamsEventBus`
-  (`docs/events.md`) when `EVENT_BUS=redis`, and the sliding-window rate
-  limiter plus join-queue primitives (`docs/capacity-and-queueing.md`).
+- **Redis 8** (`redis:8-alpine` in `compose.yml`) — two independent uses,
+  never a source of truth for game state (DECISIONS.md §12): the pluggable
+  event bus's `RedisStreamsEventBus` (`docs/events.md`) when
+  `EVENT_BUS=redis`, and the sliding-window rate limiter plus join-queue
+  primitives (`docs/capacity-and-queueing.md`).
 - **Pydantic v2** — every request/response model (via SQLModel, which wraps
   it), the event envelope and payload schema (`backend/app/events/schema.py`),
   and `pydantic-settings` for `Settings` (`backend/app/core/config.py`).
@@ -113,9 +116,21 @@ not repeat those documents' detail — it summarizes and links to them.
 
 ## Frontend (Phase 10, not yet built)
 
-- **React 19 + TanStack Router/Query + Tailwind 4 + shadcn/ui + Vite + Bun**,
-  built into `backend/app/frontend` and served by FastAPI, with a generated
-  OpenAPI client — the template's own stack, adopted at the Phase 2b pivot.
+- **React 19.3, TanStack Router 1.170/Query 5.102, TypeScript 6.0
+  (see below), Tailwind 4.3, shadcn/ui, Vite 8.3, Bun 1.4**, built into
+  `backend/app/frontend` and served by FastAPI, with a generated OpenAPI
+  client (`@hey-api/openapi-ts` 0.99) — the template's own stack, adopted
+  at the Phase 2b pivot, kept current in Phase 9.6
+  (`docs/development/dependency-audit.md`). `@tanstack/react-table` 9 (a
+  real v8→v9 migration, not just a version bump) is used by the still-template
+  `DataTable`/`Admin`/`Items` scaffolding; nothing here is a real botpit
+  feature yet.
+- **TypeScript stays on 6.0**, not the newer major 7.0, because
+  `@hey-api/openapi-ts` (the OpenAPI-to-TypeScript client generator this
+  project's build depends on) crashes under TypeScript 7 — a confirmed,
+  currently-open upstream bug (`hey-api/hey-api#4235`), not a choice made
+  here. Revisit once that's fixed upstream; full detail in
+  `docs/development/dependency-audit.md`.
   This supersedes an earlier researched pick of **SvelteKit 2 + Svelte 5**
   (runes-based reactive state was attractive for a websocket-fed table UI,
   and produced the smallest bundles in 2026 framework comparisons) — recorded
