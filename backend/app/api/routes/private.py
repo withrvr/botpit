@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.api.deps import SessionDep
+from app.authz.service import ensure_default_role
 from app.core.security import get_password_hash
 from app.models import (
     User,
@@ -34,5 +35,11 @@ def create_user(user_in: PrivateUserCreate, session: SessionDep) -> Any:
 
     session.add(user)
     session.commit()
+    session.refresh(user)
+    # Every real signup gets this via app.crud.create_user -- without it, a
+    # test account created here has no permissions at all (no room:create,
+    # room:join, ...), which only ever showed up once a Playwright test
+    # exercised a permission-gated route through this helper.
+    ensure_default_role(session, user)
 
     return user

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from sqlmodel import Session, col, or_, select
@@ -17,6 +18,8 @@ from app.models import (
     User,
     UserRole,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def load_permissions(
@@ -124,10 +127,20 @@ def ensure_default_role(session: Session, user: User) -> None:
     """Give a fresh account the ``player`` role.
 
     No-op when the role row is missing so a database without the RBAC
-    migration (or a partially seeded one) still lets accounts be created.
+    migration (or a partially seeded one) still lets accounts be created --
+    but logged, since a *production* database missing this row silently
+    grants every new account zero permissions, which otherwise surfaces
+    later as "why can't any new user do anything" with nothing pointing
+    back at the actual cause.
     """
     role = get_role(session, "player")
-    if role is None or session.get(UserRole, (user.id, role.id)) is not None:
+    if role is None:
+        logger.warning(
+            "player role missing; skipping default-role grant for user %s",
+            user.id,
+        )
+        return
+    if session.get(UserRole, (user.id, role.id)) is not None:
         return
     session.add(UserRole(user_id=user.id, role_id=role.id))
     session.commit()

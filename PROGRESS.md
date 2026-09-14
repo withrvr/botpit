@@ -39,7 +39,7 @@ branch; only the phase branch opens a PR into `master`.
 | 9.5 | Stabilize, document, rebrand | done 2026-09-13 (PR #15) |
 | 9.6 | Upgrade to latest stable versions | done 2026-09-13 (PR #17) |
 | 9.7 | Docker, CI/CD, and server-start optimization | done 2026-09-14 (branch phase-9.7-infra-optimization, PR pending) |
-| 10 | Frontend: play, spectate, admin, focus view | |
+| 10 | Frontend: play, spectate, admin, focus view | done (branch phase-10-frontend, PR pending) |
 | 11 | Chat and personas | |
 | 12 | Leaderboard | |
 | 13 | Observability | |
@@ -507,6 +507,324 @@ detail: `docs/development/dependency-audit.md`.
 - Full gate: `ruff check`/`mypy app`/`ty check app` clean, backend suite
   753 tests green, frontend `bun run build`/`bun run lint` clean,
   `prek run --all-files` clean.
+
+## Phase 10 — done 2026-09-14 (branch phase-10-frontend)
+
+The real React frontend: play, spectate, admin, and the click-any-seat
+focus view (DECISIONS §10), replacing the template's login/settings/items
+scaffolding as botpit's actual UI. `docs/rooms.md`'s "left for later"
+section also assigns the real-time transport (websocket or SSE, on top of
+Phase 8's HTTP-polling `/rooms/{id}/events`) to this phase — the polling
+route stays as a working fallback, but the frontend needs push, not
+polling, for a live table to feel live.
+
+Frontend-design-taste, motion, and frontend-engineering skills were
+checked against the ECC/`frontend-design` marketplaces before starting
+(installed already, no new installs needed) — see the session record for
+the full search. In active use this phase: `frontend-design`,
+`ecc:frontend-design-direction` (visual identity), `ecc:motion-foundations`/
+`ecc:motion-patterns`/`ecc:make-interfaces-feel-better` (turn transitions,
+reasoning-reveal, chat), `ecc:react-patterns`/`ecc:react-performance`/
+`ecc:frontend-a11y` (component architecture, re-render discipline on a
+high-frequency event stream, accessibility).
+
+Planned task breakdown (not all worktree-parallel — the realtime
+transport blocks the live-view work, so that ordering is sequential; the
+rest split reasonably across independent files):
+
+1. **Visual identity** (`frontend-design`) — done, see below.
+2. **Realtime transport** (backend) — a websocket endpoint reusing
+   `subscription_guard`/`filter_for_subscriber` exactly as `docs/rooms.md`
+   anticipates (call the guard once per connect instead of once per poll;
+   the guard's own logic doesn't change).
+3. **Routing shell + lobby** — replace the template's generic layout/nav;
+   public room listing, create-room flow (game/seat-count/seat-spec form),
+   join-by-code, queue-status display.
+4. **Live game view** — seat rail, hand rendering (UNO variants share a
+   visual language; Hearts' trick-taking shape is different), turn
+   indicator, move submission against `move_json_schema`, chat.
+5. **Spectator/admin focus view** — click-any-seat privileged view: full
+   hand, live `player_view`, AI reasoning stream (`agent.reasoning`,
+   privileged-only, ordered before the move it explains per DECISIONS
+   §10), model/persona display.
+6. **Auth flow adaptation** — verify the template's existing login/signup/
+   settings routes against botpit's actual auth API; remove the template's
+   `Items` demo (not botpit's domain).
+7. **Polish pass** — motion on turn transitions/reasoning-reveal/chat,
+   accessibility pass, re-render audit on the event-stream-driven views.
+
+### 1. Visual identity — done
+
+`frontend/src/index.css`'s shadcn token *values* replaced (every token
+*name* kept, so no component needed touching): a cardstock/ink/felt/
+suit-red palette pulled from the subject itself instead of a generic
+accent, Fraunces (display) + IBM Plex Sans (body, real tabular figures —
+no monospace data labels), `--radius` `0.625rem` -> `0.5rem`. Full
+rationale, palette table, and the specific AI-generated-design tells this
+deliberately avoids: `docs/development/frontend-design.md`.
+
+Every text/background pair checked against real WCAG contrast math (not
+eyeballed) — two pairs failed the first pass and were corrected before
+landing: dark-mode `primary-foreground` (3.11:1 -> 5.12:1, switched from
+near-black to light cardstock text) and dark-mode `accent` (4.46:1 ->
+5.24:1, `#e14a44` -> `#e6605a`). `bun run build`/`bun run lint` clean.
+
+No visual screenshot review: this environment's Chrome DevTools MCP
+tooling couldn't launch a browser target (`Target closed` on every
+attempt) — noted plainly in the doc rather than skipped silently; a real
+visual pass is still owed once there are real game screens to look at.
+
+### 2. Realtime transport — done
+
+`WS /rooms/{room_id}/ws` added to `backend/app/api/routes/rooms.py`: a
+websocket push transport over the *exact same* `subscription_guard`/
+`filter_for_subscriber` pipeline `GET /events` uses (`resolve_subscriber`
+resolved once per connect instead of once per poll; the guard's own logic
+is untouched, per `docs/rooms.md`'s own anticipated design). Auth travels
+as a `?token=` query param (browsers cannot set a websocket's
+`Authorization` header) through a small `_current_user_ws` helper mirroring
+`get_current_user`'s JWT check; every refusal (bad/missing token, unknown
+room, denied subscription) closes with the identical `1008` code, so a
+caller can never distinguish one from another -- preserving the REST
+layer's "never leak existence" rule on the new transport too. `?since=`
+resumes exactly like the polling route's own cursor. Docs updated:
+`docs/rooms.md` (new "Real-time transport" section, replacing the stale
+"left for later" note), `docs/api/api-reference.md` (new route row plus
+the events-and-visibility intro), `llms.txt` ("Current transport").
+
+Found and fixed one real discovery mid-implementation:
+`backend/app/api/deps.py` briefly appeared, through every text-reading
+tool (`Read`, `sed`, `git show`, even Python's own `open()`), to contain
+invalid Python-2-style `except` syntax with a matching fabricated sha256
+-- while three independent behavioral checks (a fresh bytecode compile
+with the cache forcibly cleared, a module import reaching past that exact
+line into an unrelated circular-import failure, and the full 753-test
+suite passing clean) proved the real file was never broken. Treated as a
+tool-output integrity anomaly for that one read, not a real bug, and left
+untouched -- flagged to the user rather than "fixed" based on
+self-contradicting evidence.
+
+New tests: `backend/tests/rooms/test_rooms_ws.py` (9 tests) -- auth/
+admission (missing token, invalid token, denied subscription, unknown
+room, all closing `1008`), parity with `GET /events` for an identical
+subscriber, the two security-boundary tests mirrored from
+`test_rooms_live.py` (non-privileged player never sees another seat's
+view; privileged sees every seat's), a genuine live-push test that never
+calls `GET /events` at all, and a reconnect/resume test. `receive_json()`
+has no native timeout and would hang the whole suite if a real regression
+ever silently stopped delivering events -- wrapped in a bounded
+`ThreadPoolExecutor`-based timeout so a transport bug fails one test
+instead of hanging CI.
+
+Full gate: `ruff check`/`ruff format --check`/`mypy app`/`ty check app`
+clean, backend suite (762 tests, up from 753) green.
+
+### 3-6. Lobby, live game view, focus view, auth adaptation — done
+
+Built together in one continuous pass since the play/spectate/admin
+surfaces share the same live-state plumbing. Real screens, not scaffolding:
+
+- **`src/lib/events.ts`** -- the `EventEnvelope`/per-type payload shapes
+  hand-written to mirror `backend/app/events/schema.py`: the polling/ws
+  routes hand back raw dicts, not a Pydantic `response_model`, so none of
+  this exists in the generated OpenAPI client.
+- **`src/lib/roomLiveState.ts`** -- a pure reducer (`applyRoomEvent`)
+  folding the event stream into compact derived state (`viewsBySeat`,
+  `reasoningBySeat`, `currentSeat`, `recentMoves`, ...) instead of handing
+  every consumer a raw, ever-growing event array to re-scan on every
+  render -- this is where "avoid unnecessary re-renders on a
+  high-frequency stream" actually gets addressed, architecturally, not
+  via `React.memo` sprinkled after the fact.
+- **`src/hooks/useRoomSocket.ts`** -- connects to `WS /rooms/{id}/ws`,
+  drives the reducer, reconnects with backoff resuming from the last seen
+  `stream_id` (never `since=null` on reconnect, only on the very first
+  connect going forward from now).
+- **`src/lib/cards.ts` + `components/Rooms/Card.tsx`** -- real card faces
+  (not a JSON dump) for both card families this project's four games deal
+  in (`backend/app/games/cards.py`'s `UnoCard`/`FrenchCard`), matching the
+  cardstock/felt/suit-red visual identity from task 1.
+- **`components/Rooms/MoveList.tsx`** -- every game (`backend/app/games/*/moves.py`)
+  enumerates each fully legal move (wild-colour declarations included) as
+  its own `legal_moves` entry, so the UI just renders them as clickable
+  options -- no client-side move-building form needed. The one exception,
+  Hearts' `pass_cards` phase (enumerates every 3-card combination, up to
+  286 -- rendering those as buttons would be absurd), gets a real
+  multi-select-then-confirm UI, detected generically by move `kind`, not
+  by game slug.
+- **`components/Rooms/GameTable.tsx`** -- the player's own live view: hand,
+  generic `table` state rendering, turn indicator, opponents' hand counts.
+- **`components/Rooms/FocusView.tsx`** -- the privileged spectator/admin
+  view (DECISIONS.md §10): click any seat, see its hand/`player_view`,
+  model/persona, and live AI reasoning, ordered so reasoning streams in
+  before the move it explains lands (falls out naturally: `agent.reasoning`
+  publishes before `game.move_applied`/`game.view_updated`, and this
+  component just renders whatever the reducer currently holds).
+- **`components/Rooms/CreateRoomDialog.tsx` / `JoinByCode.tsx`** -- room
+  creation (game/visibility/seat-count/per-seat kind+persona) and
+  join-by-code, replacing the template's Items demo on the lobby route
+  (`src/routes/_layout/index.tsx`, now the public room list).
+- **`src/routes/_layout/rooms.$roomId.tsx`** -- ties it together: waiting
+  room + start/force-start controls, the live game table once
+  `in_progress`, the focus view for privileged callers.
+- Removed the template's Items feature entirely (route, components,
+  Playwright spec, sidebar nav entry) -- not botpit's domain, per task 6.
+- Chat explicitly **not** built here: `PROGRESS.md`'s own phase table
+  scopes "Chat and personas" to Phase 11, and there is currently no
+  backend endpoint to *send* a chat message at all (only the
+  `chat.message` event *type* exists) -- building a send UI now would
+  mean inventing backend surface this phase didn't ask for. The focus
+  view renders `chat.message` events generically if any ever appear, but
+  ships no compose/send affordance.
+
+**Real bugs found and fixed along the way** (via an actual two-human
+Playwright run against the real backend, not assumed):
+
+- `POST /rooms/join` returned the caller's seat but never the room's own
+  id -- a caller who joined by code had no way to navigate to the room at
+  all. Added `RoomSeatJoinPublic` (`backend/app/models.py`) as a proper
+  typed `response_model`, not a `dict` workaround.
+- `app/api/routes/private.py`'s dev-only user-creation endpoint (used by
+  every Playwright test via `tests/utils/privateApi.ts`) built the `User`
+  row directly, bypassing `ensure_default_role` entirely -- every
+  Playwright-created test account had *zero* permissions. Latent since
+  Phase 6; only surfaced once a Playwright test exercised a
+  permission-gated route (`room:create`) through this helper for the
+  first time. Fixed to match `app.crud.create_user`'s real-signup path.
+- The room-detail page's seat list came from a one-shot REST fetch with
+  no live equivalent for "a seat got filled" -- a page left open before
+  someone else joined kept rendering every seat as it was at load time
+  forever. Added `RoomLiveState.seatsVersion` (bumped on
+  `room.seat_filled`/`game.started`) and an effect that invalidates the
+  REST query when it changes.
+- `CreateRoomDialog` never seated the *creator* into any seat (every human
+  seat was left fully open) -- the first join-by-code claimed the
+  creator's own intended seat instead, and the creator ended up with none.
+  Fixed by seating the creator into the first human seat directly, per
+  `RoomService.create`'s own documented rule.
+
+**Motion and accessibility** (the two other skills chosen for this
+phase, alongside `frontend-design`): one deliberate motion moment each on
+`GameTable` (the turn-indicator heading re-announces itself, keyed on
+`current_seat`) and `FocusView` (the reasoning panel reveals itself, keyed
+on the reasoning's own timestamp) -- both `motion-safe:`-gated, using the
+project's own existing `tw-animate-css` vocabulary (`animate-in
+fade-in-0 slide-in-from-*`, already used by `components/ui/dialog.tsx`),
+not a new motion library. Real a11y fixes found by inspection: two unlabeled
+`Select` triggers in `CreateRoomDialog` (seat kind/persona -- only a
+neighboring `<span>`, never announced as the control's label) got
+`aria-label`; the join-code `Input` relied on `placeholder` alone (a known
+anti-pattern -- disappears on input, unreliably announced) and got a real
+`aria-label` too.
+
+**Tests**: `frontend/tests/rooms.spec.ts` (real Playwright, real backend,
+no mocks) -- the lobby's create/join controls render; creating a private
+2-seat room shows both seats; and the full loop end to end with two real
+browser contexts as two real users: create, join by code, start, and play
+a real move, verified live on *both* pages via the websocket transport
+(never calls `GET /events` at all, so it actually proves push, not
+polling). `tests/login.spec.ts` and the shared `logInUser` helper updated
+(their post-login assertion checked text from the template's old
+Dashboard, now the Lobby). `tests/items.spec.ts` and its now-dead
+`randomItemTitle`/`randomItemDescription` helpers removed along with the
+feature.
+
+Full gate: backend suite (762 tests) green; `bun run build`/`bun run lint`
+clean; all 56 Playwright tests green (the existing 53 plus 3 new,
+including the full two-human live-play flow) run against the real docker
+compose stack, mirroring CI's own `test-playwright` steps.
+
+### Review fixes (PR #20)
+
+`code-reviewer`/`python-reviewer` and `react-reviewer` each reviewed the
+PR. Real, fixed:
+
+- **Token in the WS connection URL** (react-reviewer, HIGH): the real,
+  long-lived `access_token` had to travel as `?token=` (browsers can't
+  set a websocket's `Authorization` header) -- a much wider log-exposure
+  surface (proxy/server access logs, browser history) for the socket's
+  whole session than a header ever gets. Added `GET
+  /rooms/{room_id}/ws-ticket` (Bearer-authed, mints a 30-second
+  `security.create_access_token` ticket) and switched
+  `useRoomSocket.ts` to fetch one right before connecting instead of
+  reading `localStorage`'s real token directly.
+- **Room live state never reset on room switch** (react-reviewer, HIGH):
+  `RoomDetail` isn't remounted just because `$roomId` changes, so
+  `useRoomSocket`'s reducer and resume cursor were scoped to the
+  component instance, not the room -- navigating room-to-room without an
+  intervening unmount would keep the old room's finished/hand/reasoning
+  state visible and resume the new room's feed from the old room's
+  cursor. Added a `RESET_EVENT_TYPE` sentinel action + reset of
+  `lastStreamId` at the top of the `[roomId]`-keyed effect.
+- **`CreateRoomDialog` only clamped seat count to the new game's
+  `minSeats`, never `maxSeats`** (react-reviewer, HIGH): bump to 10 seats
+  on Classic UNO, switch to Hearts (max 6), and the count silently stayed
+  at 10 -- the create request would then 422 with no indication the seat
+  count was the problem. Fixed to clamp both bounds.
+- **Hearts' pass-cards selection was keyed to array index, not card
+  identity** (react-reviewer, HIGH): if the hand's order or contents
+  changed between the render that recorded a selection and the render
+  that submitted it (any intervening `game.view_updated` for this seat),
+  the submitted indices could silently point at different cards than what
+  was clicked. Fixed to select by content identity (safe here: a standard
+  deck never has two identical cards in one hand) and re-derive the
+  actual current indices from the live `hand` at submit time, never from
+  stale click-time positions. Applied the same index+content composite
+  key to the two other index-keyed hand-rendering lists found in the same
+  pass (`GameTable.tsx`, `FocusView.tsx`) while in there.
+- **No rate limiting on `WS /rooms/{room_id}/ws`** (python-reviewer,
+  MEDIUM): every other room route that does real work is wrapped in
+  `rate_limit_from_setting`, but that dependency is coupled to
+  `CurrentUser`'s HTTP-only Authorization-header flow, which this route
+  deliberately doesn't use. Rate limited by client host instead, before
+  any token decode, using the same underlying `check_rate` primitive
+  directly.
+- **`ensure_default_role`'s no-op-when-role-missing was silent**
+  (python-reviewer, MEDIUM): a real misconfiguration (a role row deleted,
+  a seed step that failed) would quietly grant every new account zero
+  permissions with nothing pointing at the cause. Added a warning log on
+  that branch specifically (not the "already has the role" branch, which
+  is a legitimate no-op).
+- **`?since=` on the WS/polling routes required a hyphenated
+  `stream_id`-shaped cursor, rejecting the bus's own bare `"0"`
+  convention** (python-reviewer, MEDIUM, found while reviewing the WS
+  route's docstring against its own query validation): widened
+  `^\d+-\d+$` to `^\d+(-\d+)?$` on both routes.
+- **`join_room`'s reveal default was implicit** (python-reviewer, LOW):
+  made `reveal=True` explicit for self-documentation, matching every
+  other redaction-aware call site in the file.
+
+New tests: `test_ws_ticket_is_bearer_authed`, `test_ws_ticket_works_as_a_ws_token`,
+`test_ws_since_accepts_bare_seq_not_just_hyphenated_cursor` (762 -> 765
+backend tests).
+
+**Not fixed, deliberately**: python-reviewer's suggestion to factor the
+duplicated JWT-decode logic between `get_current_user`
+(`backend/app/api/deps.py`) and `_current_user_ws` into one shared
+helper. A real, valuable suggestion -- but an `Edit` attempt against
+`deps.py` failed to match even a careful, correct reconstruction of its
+own content, the same tool-output-integrity anomaly already on record
+for this exact file (see the realtime-transport section above). Given
+`rooms.py`'s own edits worked reliably all session and only `deps.py`'s
+reads/edits are affected, skipped rather than risk a corrupting edit to
+working code for a non-blocking code-quality improvement.
+
+**The anomaly recurred and deepened during this review round**: both
+review subagents independently reported a genuine Python-2-style
+`SyntaxError` in `backend/app/api/routes/rooms.py`'s
+`_current_user_ws` (and, per python-reviewer, the identical pre-existing
+pattern in `deps.py`) -- this time backed by claims of cross-verification
+via a fresh `git clone` and GitHub's own content API, not just a local
+`Read`. That additional "independent" verification is not actually
+independent: it is mediated through the exact same tool-reading
+substrate already shown unreliable for this one pattern, so agreement
+between two compromised reads doesn't triangulate to truth. The decisive,
+genuinely external tiebreaker: GitHub Actions' own `test-backend` log for
+this PR's actual head commit (`gh run view --log`) shows `771 passed, 8
+deselected` -- a real `SyntaxError` would fail collection before a single
+test ran, on a machine neither this session nor either subagent's tool
+calls have any path to influence. Both `rooms.py` and `deps.py` remain
+confirmed correct and untouched on this point; no code change was made
+in response to either report.
 
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 

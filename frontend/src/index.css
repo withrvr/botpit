@@ -1,9 +1,24 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * botpit's visual identity: a card table, not a SaaS dashboard.
+ * Palette pulled from the subject itself -- cardstock, felt, and the two
+ * suit colors -- rather than a generic accent. Fraunces (display, for room
+ * names / "your turn" / winner announcements) has a slab-serif weight and
+ * a slightly wonky, hand-set character that reads like a rulebook heading,
+ * not the cream+serif+terracotta look this stack defaults to. IBM Plex
+ * Sans (body/UI) has real tabular figures for scores/turn timers, so
+ * nothing here reaches for a monospace label. Full rationale:
+ * docs/development/frontend-design.md.
+ */
 @theme inline {
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --color-gold: var(--gold);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -42,72 +57,76 @@
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.5982 0.10687 182.4689);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.5982 0.10687 182.4689);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* cardstock, ink, felt, and the two suit colors -- see index.css's header comment */
+  --radius: 0.5rem;
+  --background: #f1eee6;
+  --foreground: #14181f;
+  --card: #e7e2d2;
+  --card-foreground: #14181f;
+  --popover: #f1eee6;
+  --popover-foreground: #14181f;
+  --primary: #1f4a44;
+  --primary-foreground: #f1eee6;
+  --secondary: #e1dcc9;
+  --secondary-foreground: #14181f;
+  --muted: #dcd6c4;
+  --muted-foreground: #5b5748;
+  --accent: #c1272d;
+  --accent-foreground: #f1eee6;
+  --destructive: #a81e22;
+  --border: #cfc8b2;
+  --input: #cfc8b2;
+  --ring: #1f4a44;
+  --gold: #b08d3e;
+  --chart-1: #1f4a44;
+  --chart-2: #c1272d;
+  --chart-3: #b08d3e;
+  --chart-4: #5b5748;
+  --chart-5: #7a9490;
+  --sidebar: #e7e2d2;
+  --sidebar-foreground: #14181f;
+  --sidebar-primary: #1f4a44;
+  --sidebar-primary-foreground: #f1eee6;
+  --sidebar-accent: #c1272d;
+  --sidebar-accent-foreground: #f1eee6;
+  --sidebar-border: #cfc8b2;
+  --sidebar-ring: #1f4a44;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.65 0.10687 182.4689);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.65 0.10687 182.4689);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* the same table, at night under lamp light -- not an inverted palette */
+  --background: #14181f;
+  --foreground: #ede8da;
+  --card: #1b2028;
+  --card-foreground: #ede8da;
+  --popover: #1b2028;
+  --popover-foreground: #ede8da;
+  --primary: #2f6e64;
+  --primary-foreground: #f1eee6;
+  --secondary: #232a33;
+  --secondary-foreground: #ede8da;
+  --muted: #232a33;
+  --muted-foreground: #9a9585;
+  --accent: #e6605a;
+  --accent-foreground: #14181f;
+  --destructive: #e6605a;
+  --border: rgb(237 232 218 / 12%);
+  --input: rgb(237 232 218 / 15%);
+  --ring: #2f6e64;
+  --gold: #c9a04f;
+  --chart-1: #2f6e64;
+  --chart-2: #e6605a;
+  --chart-3: #c9a04f;
+  --chart-4: #9a9585;
+  --chart-5: #4a6a63;
+  --sidebar: #1b2028;
+  --sidebar-foreground: #ede8da;
+  --sidebar-primary: #2f6e64;
+  --sidebar-primary-foreground: #f1eee6;
+  --sidebar-accent: #e6605a;
+  --sidebar-accent-foreground: #14181f;
+  --sidebar-border: rgb(237 232 218 / 12%);
+  --sidebar-ring: #2f6e64;
 }
 
 @layer base {
@@ -115,7 +134,12 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
   }
   button,
   [role="button"] {

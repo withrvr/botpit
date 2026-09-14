@@ -293,6 +293,15 @@ class RoomSeatPublic(RoomSeatSpec):
     status: str
 
 
+class RoomSeatJoinPublic(RoomSeatPublic):
+    """``RoomSeatPublic`` plus the room's id -- only ``POST /rooms/join``
+    returns this: a caller who just joined by code has no other way to know
+    which room to navigate to next, unlike every other seat-returning route,
+    which already has the room id from its own path or its own response."""
+
+    room_id: uuid.UUID
+
+
 class RoomPublic(SQLModel):
     id: uuid.UUID
     code: str

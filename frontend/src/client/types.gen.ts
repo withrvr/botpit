@@ -497,6 +497,53 @@ export type RoomPublic = {
 };
 
 /**
+ * RoomSeatJoinPublic
+ *
+ * ``RoomSeatPublic`` plus the room's id -- only ``POST /rooms/join``
+ * returns this: a caller who just joined by code has no other way to know
+ * which room to navigate to next, unlike every other seat-returning route,
+ * which already has the room id from its own path or its own response.
+ */
+export type RoomSeatJoinPublic = {
+    /**
+     * Kind
+     */
+    kind: 'human' | 'agent';
+    /**
+     * User Id
+     */
+    user_id?: string | null;
+    /**
+     * Invited User Id
+     */
+    invited_user_id?: string | null;
+    /**
+     * Model
+     */
+    model?: string | null;
+    /**
+     * Persona
+     */
+    persona?: string | null;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Seat
+     */
+    seat: number;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Room Id
+     */
+    room_id: string;
+};
+
+/**
  * RoomSeatPublic
  */
 export type RoomSeatPublic = {
@@ -1863,12 +1910,12 @@ export type roomsJoinRoomError = roomsJoinRoomErrors[keyof roomsJoinRoomErrors];
 
 export type roomsJoinRoomResponses = {
     /**
-     * Response Rooms-Join Room
-     *
      * Successful Response
      */
-    200: unknown;
+    200: RoomSeatJoinPublic;
 };
+
+export type roomsJoinRoomResponse = roomsJoinRoomResponses[keyof roomsJoinRoomResponses];
 
 export type roomsLeaveRoomData = {
     body?: never;
@@ -2148,6 +2195,40 @@ export type roomsRoomEventsResponses = {
      */
     200: unknown;
 };
+
+export type roomsWsTicketData = {
+    body?: never;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rooms/{room_id}/ws-ticket';
+};
+
+export type roomsWsTicketErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsWsTicketError = roomsWsTicketErrors[keyof roomsWsTicketErrors];
+
+export type roomsWsTicketResponses = {
+    /**
+     * Response Rooms-Ws Ticket
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: string;
+    };
+};
+
+export type roomsWsTicketResponse = roomsWsTicketResponses[keyof roomsWsTicketResponses];
 
 export type gamesGetGameRecordData = {
     body?: never;

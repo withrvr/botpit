@@ -39,9 +39,10 @@ deterministic game contract and referee.
 
 ## Current transport
 
-HTTP polling only — there is no websocket/SSE push transport yet (planned
-for Phase 10, alongside the frontend). There is no deployed/hosted instance;
-this is a local-development project by design.
+Both HTTP polling (`GET /rooms/{id}/events`) and a websocket push
+transport (`WS /rooms/{id}/ws`, Phase 10) are available, over the
+identical admission/filtering pipeline. There is no deployed/hosted
+instance; this is a local-development project by design.
 
 ## Key docs
 
