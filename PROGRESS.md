@@ -38,10 +38,10 @@ branch; only the phase branch opens a PR into `master`.
 | 9 | Persistence and replay | done 2026-09-13 (PR #14) |
 | 9.5 | Stabilize, document, rebrand | done 2026-09-13 (PR #15) |
 | 9.6 | Upgrade to latest stable versions | done 2026-09-13 (PR #17) |
-| 9.7 | Docker, CI/CD, and server-start optimization | done 2026-09-14 (branch phase-9.7-infra-optimization, PR pending) |
-| 10 | Frontend: play, spectate, admin, focus view | done (branch phase-10-frontend, PR pending) |
-| 11 | Chat and personas | done (branch phase-11-chat-and-personas, PR pending) |
-| 12 | Leaderboard | |
+| 9.7 | Docker, CI/CD, and server-start optimization | done 2026-09-14 (PR #18) |
+| 10 | Frontend: play, spectate, admin, focus view | done 2026-09-14 (PR #20) |
+| 11 | Chat and personas | done 2026-09-14 (PR #21) |
+| 12 | Leaderboard | done 2026-09-14 (branch phase-12-leaderboard, PR pending) |
 | 13 | Observability | |
 | 14 | CI/CD (local dry-run; no server yet) | |
 | 15 | Production deployment (deferred until local complete) | |
@@ -943,6 +943,163 @@ prior report of a "SyntaxError" here was a reviewer (human or agent)
 correctly reading genuinely new, valid syntax and misclassifying it as
 an old error. No code change needed; this closes out the anomaly noted
 repeatedly in Phase 10's review-fix section above.
+
+## Phase 12 — done 2026-09-14 (branch phase-12-leaderboard)
+
+Self-planned (no formal spec; a direct continuation of context already in
+hand, per CLAUDE.md's "phases, not sprints" guidance). DECISIONS.md §11:
+"leaderboard per human account and per model, with aggregate admin views."
+
+- **The core design question**: a finished game's `GameRecord.winner_seat`
+  names a seat, not a player -- something has to tie that seat back to the
+  account/model that actually played it. Checked rather than assumed
+  whether a new snapshot table was needed: it isn't. `RoomService.start()`
+  refuses any room that isn't `"waiting"`, and nothing anywhere ever puts a
+  room back into `"waiting"` -- confirmed by reading every status
+  transition in `app/rooms/service.py`, not by inference -- so a room
+  plays exactly one game for its entire lifetime. `RoomSeat` (immutable
+  from the moment `start()` runs) already *is* that one game's durable
+  participant record. `app.leaderboard` just joins `game_record` to
+  `room_seat` on `room_id`. Full reasoning: `docs/leaderboard.md`.
+- **`app/leaderboard.py`**: `leaderboard_by_account`/`leaderboard_by_model`,
+  each an aggregate SQL query (join + group by + `func.sum(case(...))` for
+  wins), taking an optional `game` slug filter. Only `outcome ==
+  "finished"` rows count -- a `"stopped"` game's `winner_seat` is `None`,
+  so it has no result to credit. `display_name` for the accounts view is
+  `coalesce(full_name, email)` computed in SQL, not Python: SQLModel's
+  typed `select()` only has overloads up to four positional columns, and
+  pulling `full_name`/`email` as two separate columns would have been a
+  fifth.
+- **`GET /leaderboard/accounts?game=`, `GET /leaderboard/models?game=`**
+  (`app/api/routes/leaderboard.py`): gated by a new `leaderboard:view`
+  permission, deliberately granted to *every* default role
+  (`admin`/`player`/`spectator`) rather than admin-only -- a leaderboard is
+  meant to be seen by the players in it; "aggregate admin views" just means
+  the same data also surfaces from the admin side, not that it needs a
+  separate, more-restricted endpoint. New permission needed its own
+  Alembic migration (`30c74160ca50`) rather than editing the original
+  Phase 6 seed migration: that migration's own `ALL_PERMISSIONS`/
+  `DEFAULT_ROLES` imports are live, growing constants, so re-running it
+  would re-seed permissions it already inserted and collide on the unique
+  `name` constraint. The new migration names its one new permission
+  literally instead.
+- **Frontend**: `/leaderboard` (new sidebar nav item, shown to everyone,
+  matching the permission grant) -- two tabs (Accounts, Models) sharing one
+  column set (`components/Leaderboard/columns.tsx`) over the same
+  `LeaderboardEntry` shape, plus a game-filter `Select`. Extracted
+  `CreateRoomDialog.tsx`'s hardcoded four-game catalog into `lib/games.ts`
+  so the filter dropdown could reuse it instead of duplicating it.
+- **A wrong turn, caught before it shipped**: first drafted a "fix" in
+  `RoomService.start()` to persist a resolved default model/persona back
+  onto an agent seat, reasoning that a seat created without an explicit
+  model would otherwise stay `model=None` forever -- a real-looking gap
+  for a per-model leaderboard. Wrote the fix, then verified it empirically
+  (a throwaway script creating a real agent seat with no explicit model)
+  before trusting the reasoning, and the premise was false:
+  `RoomService.create()` already resolves and persists the default at
+  seat-creation time (`model = seat_spec.model or
+  self.registry.default_model`, written into the row immediately), and
+  `force_start`'s backfill does the same for the seats it creates. The
+  `start()`-time fallback is genuinely unreachable for any room made
+  through the real API. Reverted the change rather than ship a fix (and a
+  comment asserting a premise) for a bug that doesn't exist -- confirmed
+  by re-running the same empirical check after reverting.
+- **Type-checker friction, resolved properly rather than suppressed**: `ty`
+  (this project's strict checker) rejected `RoomSeat.model.is_not(None)`
+  (plain `str | None` at the class level, not a method SQLAlchemy's
+  declarative typing exposes to a static checker without help) and several
+  `.join()`/`.group_by()` calls comparing two model columns directly. Fixed
+  by wrapping column references in SQLModel's `col()` helper (the same
+  pattern already used in `app/authz/service.py`), not by suppressing the
+  checker -- and dropped the `is_not(None)` filter entirely once the
+  model-backfill investigation above proved it was defensive code guarding
+  against a state that can't occur.
+
+New tests: `backend/tests/leaderboard/test_leaderboard.py` (7 tests: wins
+and games-played aggregate correctly across separate rooms, stopped games
+excluded, model grouping ignores persona, the `game` filter scopes
+correctly, both HTTP routes 200, the permission gate 403s when
+`leaderboard:view` is revoked). One self-caught bug while writing them: an
+early draft of the "stopped games are excluded" test asserted the *entire*
+leaderboard was empty, but `db` is a session-scoped fixture shared across
+every test in the file -- an earlier test's own rows were still present.
+Fixed to scope the assertion to this test's own two accounts, matching
+every other test in the file. `tests/authz/test_authz.py::test_migration_seeds`
+also needed its hardcoded `len(ALL_PERMISSIONS) == 12` bumped to `13` --
+a real, expected consequence of adding a permission, not a regression.
+`frontend/tests/leaderboard.spec.ts` (2 tests: tabs/filter render and
+switch; the sidebar nav link reaches the page) (779 backend tests total,
+59 Playwright tests total).
+
+Full gate: backend suite (779 tests) green, `ty`/`mypy`/`ruff` clean,
+`bun run build`/`bun run lint` clean, full Playwright suite (59 tests)
+green against the real docker compose stack, `prek run --all-files` clean.
+
+### CI caught a real migration bug before merge (PR #22)
+
+`test-backend`/`pre-commit` failed on a fresh CI database:
+`UniqueViolation` on `permission_pkey` for `leaderboard:view`. Root cause:
+`a1b2c3d4e5f6_rbac.py` (the original Phase 6 seed migration) imports
+`ALL_PERMISSIONS`/`DEFAULT_ROLES` *live* from `app/authz/permissions.py`
+and re-evaluates them every time it runs -- so on any database that has
+never run a migration before (a fresh CI run, a new deployment), that
+older migration runs first and already sees `leaderboard:view` in the
+*current* module state, seeding it itself. The new migration
+(`30c74160ca50`) then tried to insert the identical row again with a plain
+`op.bulk_insert` and collided on the unique constraint. This never
+reproduced locally because the local dev DB had already applied
+`a1b2c3d4e5f6` long before `leaderboard:view` existed -- the exact
+scenario the new migration was written for, not the fresh-database one CI
+actually hit. Fixed by switching both inserts to
+`postgresql.insert(...).on_conflict_do_nothing(...)`, correct either way:
+a no-op if the old migration already seeded it (fresh DB), a real insert
+if it didn't (an existing DB migrated before this permission existed).
+Verified both paths directly against two throwaway Postgres containers
+(one migrated clean from scratch; one migrated to the pre-Phase-12 head
+with `permissions.py` temporarily reverted, then to the new head with it
+restored) rather than trusting the reasoning alone.
+
+### Review fixes (PR #22)
+
+`python-reviewer` and `react-reviewer` each reviewed the PR (plus an
+extra general-purpose review dispatched by mistake on the first attempt --
+kept its findings anyway since it independently re-verified the migration
+fix). Real, fixed:
+
+- **Game-filter `Select` had no accessible name** (react-reviewer, HIGH):
+  every other `Select` in this codebase pairs a `Label htmlFor`/`id` or an
+  explicit `aria-label` -- this was the only one with neither. Added
+  `aria-label="Filter by game"`.
+- **Loading/error state indistinguishable from "no games yet"**
+  (react-reviewer, HIGH): neither query checked `isLoading`/`isError`, so
+  every page load flashed a false empty state, and a real failure (a
+  permission regression, a 500) would render identically to "no games"
+  forever, hiding it. Factored a small shared `LeaderboardTable`
+  component (both tabs have the identical `LeaderboardEntry` shape) that
+  branches on loading/error/empty/data.
+- **Docstring overstated the finished/winner_seat relationship**
+  (general-purpose reviewer, doc nit): claimed only a `"stopped"` game has
+  `winner_seat == None`, but `Referee.run()`
+  (`winner = ranking[0] if hands[ranking[0]] == () else None`) can produce
+  that for a `"finished"` game too. Not a code bug -- `leaderboard.py`
+  already handles it correctly (counts toward `games_played`, credits no
+  one a win) -- just a comment that overclaimed. Corrected the module
+  docstring.
+- **Cheap insurance for future phases** (general-purpose reviewer's
+  suggestion): added a "Adding a permission after `a1b2c3d4e5f6`" section
+  to `docs/persistence.md` naming the exact trap this PR's own migration
+  hit, plus the missing `30c74160ca50` row in that doc's migration-chain
+  table.
+
+**Not fixed, deliberately**: react-reviewer's MEDIUM suggestion to gate
+the inactive tab's query behind `enabled` so only one of
+accounts/models fetches at a time. Left both fetching unconditionally --
+the aggregate query is cheap, and prefetching both means switching tabs is
+instant rather than showing a spinner; left a one-line comment stating
+this is deliberate rather than an oversight. Also not fixed: pagination on
+the two list routes (python-reviewer, MEDIUM) -- already documented as a
+found-but-deferred gap in `docs/leaderboard.md`'s "Left for later" section
+before either review even ran.
 
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 

@@ -43,7 +43,7 @@ def test_migration_seeds(db: Session) -> None:
     assert set(roles) == {"admin", "player", "spectator", "moderator"}
     assert roles["moderator"].scope == "room"
     assert {p.name for p in db.exec(select(Permission)).all()} == ALL_PERMISSIONS
-    assert len(ALL_PERMISSIONS) == 12
+    assert len(ALL_PERMISSIONS) == 13
     admin_perms = db.exec(
         select(Permission.name)
         .join(RolePermission, RolePermission.permission_id == Permission.id)  # type: ignore[arg-type]

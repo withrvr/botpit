@@ -150,6 +150,20 @@ some `game_id` could otherwise use).
 | `GET /games/{game_id}/events` | Bearer + room-admitted | query `since` (archived `seq` integer, not a live cursor), `limit` (default 200) | `{"events": [...], "next_since": <seq or null>}` | `404` unknown game or denied |
 | `GET /games/{game_id}/replay` | Bearer + room-admitted | query `seat?` (default: caller's own), `upto?` (default: every move) | that seat's `PlayerView` at that point, via `Referee.replay` | `400` no `seat` given and caller holds none, `403` requesting another seat without privilege, `422` `upto` exceeds the game's actual move count, `404` unknown game or denied, `500` archived history failed to replay (`ReplayMismatchError`, logged) |
 
+## Leaderboard (`leaderboard.py`, prefix `/leaderboard`) — Phase 12, DECISIONS.md §11
+
+Aggregate, not per-room: joins every `GameRecord` (`outcome == "finished"`
+only -- a `"stopped"` game has no `winner_seat`) to `RoomSeat` on `room_id`
+(docs/leaderboard.md explains why that join alone is durable and correct).
+Gated by `leaderboard:view`, granted to every default role
+(`admin`/`player`/`spectator`) -- a leaderboard is meant to be seen, not an
+admin-only report.
+
+| Method & path | Auth | Request | Response | Status codes |
+|---|---|---|---|---|
+| `GET /leaderboard/accounts` | Bearer + `leaderboard:view` | query `game?` (a game slug, e.g. `hearts`; omitted = every game) | `list[LeaderboardEntry {subject_id, display_name, games_played, wins, win_rate}]`, one row per human account, ordered by wins desc | `403` missing the permission |
+| `GET /leaderboard/models` | Bearer + `leaderboard:view` | query `game?` | same shape, one row per model name | `403` missing the permission |
+
 ## Events and visibility
 
 Both the live polling route (`GET /rooms/{room_id}/events`) and the durable

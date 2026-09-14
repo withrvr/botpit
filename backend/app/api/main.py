@@ -5,6 +5,7 @@ from app.api.routes import (
     games,
     health,
     items,
+    leaderboard,
     login,
     private,
     roles,
@@ -25,6 +26,7 @@ api_router.include_router(admin.router)
 api_router.include_router(admin.me_router)
 api_router.include_router(rooms.router)
 api_router.include_router(games.router)
+api_router.include_router(leaderboard.router)
 
 
 if settings.FASTAPI_ENV == "development":

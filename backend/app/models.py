@@ -447,6 +447,19 @@ class GameRecordPublic(SQLModel):
     finished_at: datetime
 
 
+class LeaderboardEntry(SQLModel):
+    """One row of an aggregate leaderboard (Phase 12, DECISIONS.md §11):
+    either a human account (``subject_id`` a user id) or a model
+    (``subject_id`` the model name), never both -- ``app.leaderboard`` never
+    mixes the two in one query."""
+
+    subject_id: str
+    display_name: str
+    games_played: int
+    wins: int
+    win_rate: float
+
+
 class GameEvent(SQLModel, table=True):
     __tablename__ = "game_event"
     __table_args__ = (

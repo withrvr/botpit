@@ -1,4 +1,4 @@
-import { Home, Users } from "lucide-react"
+import { Home, Trophy, Users } from "lucide-react"
 
 import { SidebarAppearance } from "@/components/Common/Appearance"
 import { Logo } from "@/components/Common/Logo"
@@ -12,7 +12,10 @@ import useAuth from "@/hooks/useAuth"
 import { type Item, Main } from "./Main"
 import { User } from "./User"
 
-const baseItems: Item[] = [{ icon: Home, title: "Lobby", path: "/" }]
+const baseItems: Item[] = [
+  { icon: Home, title: "Lobby", path: "/" },
+  { icon: Trophy, title: "Leaderboard", path: "/leaderboard" },
+]
 
 export function AppSidebar() {
   const { user: currentUser } = useAuth()

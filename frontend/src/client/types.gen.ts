@@ -321,6 +321,37 @@ export type LLMHealth = {
 };
 
 /**
+ * LeaderboardEntry
+ *
+ * One row of an aggregate leaderboard (Phase 12, DECISIONS.md §11):
+ * either a human account (``subject_id`` a user id) or a model
+ * (``subject_id`` the model name), never both -- ``app.leaderboard`` never
+ * mixes the two in one query.
+ */
+export type LeaderboardEntry = {
+    /**
+     * Subject Id
+     */
+    subject_id: string;
+    /**
+     * Display Name
+     */
+    display_name: string;
+    /**
+     * Games Played
+     */
+    games_played: number;
+    /**
+     * Wins
+     */
+    wins: number;
+    /**
+     * Win Rate
+     */
+    win_rate: number;
+};
+
+/**
  * Message
  */
 export type Message = {
@@ -2377,6 +2408,70 @@ export type gamesReplayResponses = {
      */
     200: unknown;
 };
+
+export type leaderboardAccountsLeaderboardData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Game
+         */
+        game?: string | null;
+    };
+    url: '/api/v1/leaderboard/accounts';
+};
+
+export type leaderboardAccountsLeaderboardErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type leaderboardAccountsLeaderboardError = leaderboardAccountsLeaderboardErrors[keyof leaderboardAccountsLeaderboardErrors];
+
+export type leaderboardAccountsLeaderboardResponses = {
+    /**
+     * Response Leaderboard-Accounts Leaderboard
+     *
+     * Successful Response
+     */
+    200: Array<LeaderboardEntry>;
+};
+
+export type leaderboardAccountsLeaderboardResponse = leaderboardAccountsLeaderboardResponses[keyof leaderboardAccountsLeaderboardResponses];
+
+export type leaderboardModelsLeaderboardData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Game
+         */
+        game?: string | null;
+    };
+    url: '/api/v1/leaderboard/models';
+};
+
+export type leaderboardModelsLeaderboardErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type leaderboardModelsLeaderboardError = leaderboardModelsLeaderboardErrors[keyof leaderboardModelsLeaderboardErrors];
+
+export type leaderboardModelsLeaderboardResponses = {
+    /**
+     * Response Leaderboard-Models Leaderboard
+     *
+     * Successful Response
+     */
+    200: Array<LeaderboardEntry>;
+};
+
+export type leaderboardModelsLeaderboardResponse = leaderboardModelsLeaderboardResponses[keyof leaderboardModelsLeaderboardResponses];
 
 export type privateCreateUserData = {
     body: PrivateUserCreate;
