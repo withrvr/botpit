@@ -41,6 +41,7 @@ from app.events import (
     make_event,
 )
 from app.games import Seat, get_game
+from app.metrics import ACTIVE_GAMES
 from app.models import (
     GameEvent,
     GameRecord,
@@ -551,6 +552,7 @@ class RoomService:
         self.session.add(room)
         self.session.commit()
         self.session.refresh(room)
+        ACTIVE_GAMES.inc()
         return room
 
     async def _finish_room(self, room_id: str, outcome: str) -> None:
@@ -576,6 +578,11 @@ class RoomService:
             room = session.get(Room, uuid.UUID(room_id))
             if room is None:
                 return
+            # Unconditional, not nested in the status-write guard below --
+            # same reasoning as archiving: this callback fires exactly once
+            # per game no matter which side won the `stop()` race, so the
+            # gauge must always come back down exactly once too.
+            ACTIVE_GAMES.dec()
             if room.status == "in_progress":
                 room.status = outcome
                 room.finished_at = get_datetime_utc()

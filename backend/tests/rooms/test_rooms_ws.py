@@ -7,6 +7,7 @@ app (a real ``GameRunner``) exactly like ``test_rooms_live.py``, not mocks.
 from __future__ import annotations
 
 import concurrent.futures
+import logging
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -16,6 +17,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from app.core.config import settings
+from app.metrics import ACTIVE_WS_CONNECTIONS
 
 pytestmark = pytest.mark.redis
 
@@ -380,6 +382,48 @@ def test_ws_ticket_works_as_a_ws_token(client: TestClient, live_game: LiveGame) 
             ws, lambda seen: any(e["type"] == "game.started" for e in seen), timeout=5.0
         )
     assert events
+
+
+# -- observability (Phase 13) --------------------------------------------------
+
+
+def test_ws_session_wide_event_and_connection_gauge(
+    client: TestClient, live_game: LiveGame, caplog: pytest.LogCaptureFixture
+) -> None:
+    room_id, seats = live_game
+    headers = seats[0]
+    caplog.set_level(logging.INFO, logger="botpit.wide")
+
+    ticket = client.get(f"{API}/rooms/{room_id}/ws-ticket", headers=headers).json()[
+        "ticket"
+    ]
+    before = ACTIVE_WS_CONNECTIONS._value.get()
+    with client.websocket_connect(
+        f"{API}/rooms/{room_id}/ws?token={ticket}&since=0"
+    ) as ws:
+        assert ACTIVE_WS_CONNECTIONS._value.get() == before + 1
+        _recv_until(
+            ws, lambda seen: any(e["type"] == "game.started" for e in seen), timeout=5.0
+        )
+    # `with` exiting closes the connection; the gauge decrement happens in
+    # the route's own `finally`, on the server side of the same in-process
+    # ASGI app -- poll rather than assume it already landed.
+    for _ in range(200):
+        if ACTIVE_WS_CONNECTIONS._value.get() == before:
+            break
+        time.sleep(0.01)
+    assert ACTIVE_WS_CONNECTIONS._value.get() == before
+
+    sessions = [
+        r.wide
+        for r in caplog.records
+        if r.name == "botpit.wide" and r.wide.get("event_kind") == "ws.session"
+    ]
+    assert sessions
+    ev = sessions[-1]
+    assert ev["room_id"] == str(room_id)
+    assert ev["subscriber_kind"] in ("privileged", "player")
+    assert ev["events_sent"] >= 1
 
 
 def test_ws_since_accepts_bare_seq_not_just_hyphenated_cursor(

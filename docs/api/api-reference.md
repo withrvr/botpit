@@ -77,6 +77,15 @@ Every new account is granted the default `player` role on creation
 per worker process — one real probe per TTL window regardless of how many
 callers ask.
 
+## Metrics (`metrics.py`, no route prefix) — Phase 13, docs/admin-and-observability.md
+
+| Method & path | Auth | Request | Response | Status codes |
+|---|---|---|---|---|
+| `GET /metrics` | none | — | Prometheus text exposition of `app.metrics.REGISTRY` | — |
+
+Unauthenticated, matching `/health` -- both are operational endpoints for a
+scraper/monitor, not user data.
+
 ## Roles (`roles.py`, prefix `/roles`) — every route requires `admin:manage_roles`
 
 | Method & path | Request | Response | Status codes |

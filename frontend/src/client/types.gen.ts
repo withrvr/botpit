@@ -2473,6 +2473,20 @@ export type leaderboardModelsLeaderboardResponses = {
 
 export type leaderboardModelsLeaderboardResponse = leaderboardModelsLeaderboardResponses[keyof leaderboardModelsLeaderboardResponses];
 
+export type metricsMetricsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/metrics';
+};
+
+export type metricsMetricsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type privateCreateUserData = {
     body: PrivateUserCreate;
     path?: never;

@@ -29,6 +29,7 @@ class FakeLLMClient:
             self._fn = responses
         self.latency_s = latency_s
         self.requests: list[CompletionRequest] = []
+        self.base_url = "fake://test"
 
     async def complete(self, req: CompletionRequest) -> CompletionResult:
         self.requests.append(req)

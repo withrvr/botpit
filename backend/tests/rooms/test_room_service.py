@@ -19,6 +19,7 @@ from app.authz import load_permissions
 from app.authz.permissions import P
 from app.core.config import settings
 from app.events import InMemoryEventBus
+from app.metrics import ACTIVE_GAMES, MOVES_TOTAL
 from app.models import RoomCreate, RoomSeatSpec
 from app.referee import GameRunner
 from app.rooms.codes import is_valid_code
@@ -351,6 +352,69 @@ async def test_all_agent_room_starts_directly(
     assert runner.get(str(room.id)) is not None
     await service.stop(room.id, "test cleanup")
     assert runner.active() == []
+
+
+# -- observability (Phase 13) --------------------------------------------------
+
+
+async def test_active_games_gauge_tracks_start_and_finish(
+    db: Session, service: RoomService, runner: GameRunner
+) -> None:
+    before = ACTIVE_GAMES._value.get()
+    creator = create_random_user(db)
+    room = await service.create(creator, _two_agent())
+    await service.start(room.id)
+    assert ACTIVE_GAMES._value.get() == before + 1
+
+    await service.stop(room.id, "test cleanup")
+    # `_finish_room` (the decrement) races `stop()`'s own return, per its own
+    # docstring -- poll rather than assume it already ran.
+    for _ in range(200):
+        if ACTIVE_GAMES._value.get() == before:
+            break
+        await asyncio.sleep(0.01)
+    assert ACTIVE_GAMES._value.get() == before
+
+
+async def test_moves_total_increments_when_a_move_is_submitted(
+    db: Session, service: RoomService, runner: GameRunner
+) -> None:
+    creator = create_random_user(db)
+    other = create_random_user(db)
+    room = await service.create(
+        creator,
+        RoomCreate(
+            game="uno_classic",
+            seat_count=2,
+            visibility="private",
+            seats=[
+                RoomSeatSpec(kind="human", user_id=creator.id),
+                RoomSeatSpec(kind="human"),
+            ],
+        ),
+    )
+    await service.join_by_code(other, room.code)
+    await service.start(room.id)
+
+    running = runner.get(str(room.id))
+    current_seat = running.game.current_seat(running.state)
+    assert current_seat is not None
+    current_user = next(
+        creator if s.user_id == creator.id else other
+        for s in service.seats(room.id)
+        if s.seat == current_seat
+    )
+    view = running.game.player_view(running.state, current_seat)
+
+    before = MOVES_TOTAL._value.get()
+    service.submit_move(current_user, room.id, view.legal_moves[0])
+    for _ in range(200):
+        if MOVES_TOTAL._value.get() > before:
+            break
+        await asyncio.sleep(0.01)
+    assert MOVES_TOTAL._value.get() == before + 1
+
+    await service.stop(room.id, "test cleanup")
 
 
 # -- chat (Phase 11) ----------------------------------------------------------

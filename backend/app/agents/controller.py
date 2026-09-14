@@ -21,6 +21,11 @@ from app.events import (
 )
 from app.games.base import AnyGame, PlayerView, Seat
 from app.llm.client import CompletionRequest, LLMClient, LLMError, Message, with_retries
+from app.metrics import (
+    AGENT_TURN_ERRORS_TOTAL,
+    AGENT_TURN_LATENCY_SECONDS,
+    note_llm_call,
+)
 from app.referee.seats import ControllerError, SeatKind, TurnContext
 from app.telemetry import current_event, get_logger
 
@@ -92,6 +97,7 @@ class AgentController:
                 think=self.think,
             )
             try:
+                note_llm_call(self.client.base_url, self.model)
                 result = await with_retries(
                     functools.partial(self.client.complete, req)
                 )
@@ -196,6 +202,12 @@ class AgentController:
         ev = current_event()
         if ev is not None:
             ev.add("llm.calls", {"model": self.model, **fields})
+        AGENT_TURN_LATENCY_SECONDS.labels(model=self.model).observe(
+            fields.get("latency_ms", 0) / 1000
+        )
+        error = fields.get("error")
+        if error is not None:
+            AGENT_TURN_ERRORS_TOTAL.labels(model=self.model, error=error).inc()
 
     async def _publish(self, payload: Any, visibility: Any) -> None:
         correlation = {"game_id": self.game_id} if self.game_id else {}
