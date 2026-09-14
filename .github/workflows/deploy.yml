@@ -1,11 +1,15 @@
 name: Deploy
 
+# Manual-dispatch only, not `push: branches: [master]` -- DECISIONS.md §1:
+# "no staging or production server is bought or hosted until local
+# development... is fully complete... deploy workflows are written and
+# dry-run locally." No FastAPI Cloud account/secrets exist yet (Phase 15,
+# not done), so triggering this on every push would just fail every time
+# at the final "Deploy to FastAPI Cloud" step -- which it did, on every
+# single push to master since this repo's very first one, invisible to PR
+# checks because a `push`-triggered workflow never shows up in
+# `gh pr checks` (found and fixed during Phase 14).
 on:
-  push:
-    branches:
-      - master
-    paths-ignore:
-      - release-notes.md
   workflow_dispatch:
 
 permissions:
@@ -13,8 +17,6 @@ permissions:
 
 jobs:
   deploy:
-    # Do not deploy the template repository, only projects created from it
-    if: github.repository != 'fastapi/full-stack-fastapi-template'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -30,7 +32,7 @@ jobs:
       - name: Install frontend dependencies
         run: bun ci
       - name: Build frontend
-        run: bun run --filter frontend build
+        run: bun run --filter botpit-frontend build
         env:
           # Override frontend/.env so the deployed frontend uses the same origin as the API
           VITE_API_URL: ""
