@@ -40,6 +40,7 @@ from app.core.redis import get_redis
 from app.events import Subscriber, filter_for_subscriber
 from app.games import get_game
 from app.games.move_schema import move_json_schema
+from app.metrics import ACTIVE_WS_CONNECTIONS
 from app.models import (
     Message,
     Room,
@@ -63,6 +64,7 @@ from app.rooms.service import (
     RoomNotWaitingError,
     RoomService,
 )
+from app.telemetry import wide_event
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
 
@@ -568,10 +570,22 @@ async def room_ws(
         return
 
     await websocket.accept()
+    ACTIVE_WS_CONNECTIONS.inc()
     try:
-        async for event in service.bus.subscribe(str(room_id), since=since):
-            filtered = filter_for_subscriber(event, subscriber)
-            if filtered is not None:
-                await websocket.send_json(filtered.model_dump(mode="json"))
-    except WebSocketDisconnect:
-        pass
+        with wide_event(
+            "ws.session",
+            room_id=str(room_id),
+            user_id=str(user.id),
+            subscriber_kind=subscriber.kind,
+            seat=subscriber.seat,
+        ) as ev:
+            try:
+                async for event in service.bus.subscribe(str(room_id), since=since):
+                    filtered = filter_for_subscriber(event, subscriber)
+                    if filtered is not None:
+                        await websocket.send_json(filtered.model_dump(mode="json"))
+                        ev.incr("events_sent")
+            except WebSocketDisconnect:
+                ev.set(close_reason="client_disconnect")
+    finally:
+        ACTIVE_WS_CONNECTIONS.dec()

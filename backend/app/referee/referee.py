@@ -30,6 +30,7 @@ from app.events import (
 )
 from app.games import get_game
 from app.games.base import AnyGame, GameState, IllegalMoveError, Move, Seat
+from app.metrics import AGENT_TURN_TIMEOUTS_TOTAL, MOVES_TOTAL
 from app.referee.seats import (
     ControllerError,
     SeatController,
@@ -221,6 +222,10 @@ class Referee:
                         move = candidate
             except TimeoutError:
                 ev.set(fallback=True, fallback_reason="timeout", timed_out=True)
+                if spec.kind == "agent":
+                    AGENT_TURN_TIMEOUTS_TOTAL.labels(
+                        model=spec.model or "unknown"
+                    ).inc()
                 move, next_state = self._fallback(seat)
                 await self._publish(
                     TurnTimedOut(seat=seat, fallback_move=move.model_dump(mode="json")),
@@ -243,6 +248,7 @@ class Referee:
         self.state = next_state
         raw = move.model_dump(mode="json")
         self.moves.append(raw)
+        MOVES_TOTAL.inc()
         description = self.game.describe_move(move)
         await self._publish(
             MoveApplied(

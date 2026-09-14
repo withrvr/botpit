@@ -68,6 +68,8 @@ class LLMBadResponseError(LLMError):
 
 
 class LLMClient(Protocol):
+    base_url: str
+
     async def complete(self, req: CompletionRequest) -> CompletionResult: ...
 
     async def aclose(self) -> None: ...

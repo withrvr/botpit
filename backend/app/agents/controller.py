@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import json
+import time
 from collections.abc import Sequence
 from typing import Any, ClassVar
 
@@ -21,6 +22,11 @@ from app.events import (
 )
 from app.games.base import AnyGame, PlayerView, Seat
 from app.llm.client import CompletionRequest, LLMClient, LLMError, Message, with_retries
+from app.metrics import (
+    AGENT_TURN_ERRORS_TOTAL,
+    AGENT_TURN_LATENCY_SECONDS,
+    note_llm_call,
+)
 from app.referee.seats import ControllerError, SeatKind, TurnContext
 from app.telemetry import current_event, get_logger
 
@@ -91,12 +97,20 @@ class AgentController:
                 keep_alive=self.keep_alive,
                 think=self.think,
             )
+            call_start = time.perf_counter()
             try:
+                note_llm_call(self.client.base_url, self.model)
                 result = await with_retries(
                     functools.partial(self.client.complete, req)
                 )
             except LLMError as exc:
-                self._metrics(latency_ms=0, ok=False, error=type(exc).__name__)
+                # Real elapsed wall-clock time, not 0 -- `with_retries` may
+                # have already spent real time retrying before giving up,
+                # and this is exactly the call this histogram most wants to
+                # characterize accurately (a persistent failure, possibly
+                # after a VRAM-swap-induced slow start).
+                elapsed_ms = (time.perf_counter() - call_start) * 1000
+                self._metrics(latency_ms=elapsed_ms, ok=False, error=type(exc).__name__)
                 raise ControllerError(f"{self.model}: {exc}") from exc
             reasoning, move = _parse_answer(result.text)
             if result.reasoning:
@@ -196,6 +210,12 @@ class AgentController:
         ev = current_event()
         if ev is not None:
             ev.add("llm.calls", {"model": self.model, **fields})
+        AGENT_TURN_LATENCY_SECONDS.labels(model=self.model).observe(
+            fields.get("latency_ms", 0) / 1000
+        )
+        error = fields.get("error")
+        if error is not None:
+            AGENT_TURN_ERRORS_TOTAL.labels(model=self.model, error=error).inc()
 
     async def _publish(self, payload: Any, visibility: Any) -> None:
         correlation = {"game_id": self.game_id} if self.game_id else {}

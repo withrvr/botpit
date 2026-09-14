@@ -29,6 +29,15 @@ class FakeLLMClient:
             self._fn = responses
         self.latency_s = latency_s
         self.requests: list[CompletionRequest] = []
+        # Shared across every FakeLLMClient instance on purpose -- but note
+        # `app.metrics.note_llm_call`'s swap counter keys off `base_url` and
+        # never resets between tests, so `botpit_model_swaps_total{base_url=
+        # "fake://test"}`'s *absolute* value is order-dependent across the
+        # whole test session. Existing tests avoid this correctly (diff
+        # against a captured before/after baseline, or use a base_url unique
+        # to that one test) -- keep doing that, don't assert an absolute
+        # value for this base_url.
+        self.base_url = "fake://test"
 
     async def complete(self, req: CompletionRequest) -> CompletionResult:
         self.requests.append(req)

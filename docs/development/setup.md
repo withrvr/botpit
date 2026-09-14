@@ -22,9 +22,21 @@ the WSL/Ollama split specifically, see `DECISIONS.md` §0.5.
 ## Install dependencies
 
 ```bash
-cd backend && uv sync    # Python deps, backend/.venv
-cd ../frontend && bun install   # frontend deps
+uv sync --all-groups     # one shared .venv at the repo root (uv workspace, backend/ is its only member)
+cd frontend && bun install   # frontend deps
 ```
+
+`--all-groups` matters: the repo-root `pyproject.toml`'s `dev`/`github-actions`
+groups (`prek`, `zizmor`, `smokeshow` -- everything `prek run --all-files`
+needs) live outside `backend/pyproject.toml`'s own `dependencies`, so a bare
+`uv sync` only installs botpit's runtime deps and silently leaves those
+tooling packages missing, whether run from the repo root or from `backend/`
+(there's no separate `backend/.venv` -- uv workspaces share one venv at the
+workspace root regardless of which member directory you run `uv sync` from).
+Re-running a bare `uv sync` from either place later (e.g. after `uv add`ing a
+new runtime dependency) *removes* those tooling packages from the shared venv
+if they were already installed -- always use `--all-groups` for any `uv sync`
+in this repo, not just the first one.
 
 ## Environment variables
 

@@ -21,6 +21,7 @@ dependencies = [
     # botpit
     "redis[hiredis]>=8.1.0",
     "websockets>=13",
+    "prometheus-client>=0.26.0,<1.0.0",
 ]
 
 [dependency-groups]

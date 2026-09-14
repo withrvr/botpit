@@ -41,8 +41,8 @@ branch; only the phase branch opens a PR into `master`.
 | 9.7 | Docker, CI/CD, and server-start optimization | done 2026-09-14 (PR #18) |
 | 10 | Frontend: play, spectate, admin, focus view | done 2026-09-14 (PR #20) |
 | 11 | Chat and personas | done 2026-09-14 (PR #21) |
-| 12 | Leaderboard | done 2026-09-14 (branch phase-12-leaderboard, PR pending) |
-| 13 | Observability | |
+| 12 | Leaderboard | done 2026-09-14 (PR #22) |
+| 13 | Observability | done 2026-09-14 (branch phase-13-observability, PR pending) |
 | 14 | CI/CD (local dry-run; no server yet) | |
 | 15 | Production deployment (deferred until local complete) | |
 | 16 | Scale and polish | |
@@ -1100,6 +1100,131 @@ this is deliberate rather than an oversight. Also not fixed: pagination on
 the two list routes (python-reviewer, MEDIUM) -- already documented as a
 found-but-deferred gap in `docs/leaderboard.md`'s "Left for later" section
 before either review even ran.
+
+## Phase 13 — done 2026-09-14 (branch phase-13-observability)
+
+Self-planned (no formal spec; a direct continuation of context already in
+hand). DECISIONS.md §14: "Prometheus `/metrics`... everything inspectable
+locally." Scoped by first reading what already existed rather than
+assuming: wide events (Phase 1), `/health`/`/health/llm` (Phase 1/6) were
+already fully built. Only two real gaps: no `/metrics` at all, and
+`docs/admin-and-observability.md`'s own `ws.session` wide event -- listed
+in that doc's table since Phase 1 -- had never actually been wired into
+the websocket route.
+
+- **`app/metrics.py`** (new): a dedicated `CollectorRegistry` (not
+  `prometheus_client`'s process-global default, so `/metrics` is explicit
+  about exactly what it exposes and test collection can't hit the
+  classic "duplicated metric name" footgun). `botpit_active_games`/
+  `botpit_active_ws_connections` (gauges), `botpit_agent_turn_latency_seconds`/
+  `_errors_total` (per model), `botpit_agent_turn_timeouts_total` (agent
+  seats only, not `scripted`), `botpit_moves_total`, `botpit_model_swaps_total`
+  (per `base_url`). "Moves per minute" (DECISIONS §14's own wording) is a
+  plain counter, not a stored per-minute number -- graphing `rate()` over
+  it is Prometheus's own idiom for exactly this.
+- **`GET /metrics`** (new route, unauthenticated like `/health`): Prometheus
+  text exposition of that registry.
+- **Instrumentation, hooked at the existing single centralizing spot in
+  each case rather than adding new ones**: `AgentController._metrics`
+  (already fed the wide event's `llm.calls`) now also records the
+  latency histogram and error counter; `Referee._commit` (already the one
+  place a move lands) increments `MOVES_TOTAL`; `Referee._take_turn`'s
+  existing `TimeoutError` branch increments the timeout counter for real
+  agent seats; `RoomService.start`/`_finish_room` (already the exactly-
+  once start/finish pair the archiving logic relies on) increment/decrement
+  `ACTIVE_GAMES` symmetrically.
+- **`app.metrics.note_llm_call(base_url, model)`**: called right before
+  every real outbound LLM completion request
+  (`AgentController.decide`). Counts a swap when the immediately
+  preceding call to the same `base_url` used a different model --
+  DECISIONS §13's "surface swap counts in metrics," not the model-swap-
+  *aware scheduler* that decision also describes (grouping concurrent AI
+  turns by model to minimise swaps). That scheduler does not exist and is
+  explicitly out of scope here: this phase is Observability, not
+  scheduling, and this counter is exactly what would tell a future phase
+  whether building it is worth it. Needed `base_url: str` added to the
+  `LLMClient` Protocol (both real adapters already had it; `FakeLLMClient`
+  needed a `base_url` attribute added too, or every existing agent test
+  using it would have started raising `AttributeError`).
+- **`ws.session` wide event + `ACTIVE_WS_CONNECTIONS`**
+  (`app/api/routes/rooms.py`'s `room_ws`): wraps the accepted-connection
+  lifecycle (not the earlier auth/admission refusals -- a "session" is an
+  established connection). `events_sent` via `ev.incr` per message sent;
+  `close_reason="client_disconnect"` on a clean `WebSocketDisconnect`; any
+  other exception's type/message land in the wide event's own `error.*`
+  fields automatically, same as every other wide event. The gauge is
+  incremented right after `accept()` and decremented in a `finally`, so it
+  comes back down regardless of how the connection ends.
+- **Found and fixed in passing, not this phase's actual subject**:
+  `docs/admin-and-observability.md`'s wide-event table named `agent.turn`
+  as the event kind; the real `event_kind` (and every seat kind, not just
+  agents) has always been `game.turn` -- corrected.
+- **A real onboarding bug, found while adding this phase's one new
+  dependency (`prometheus-client`)**: ran a bare `uv sync` from `backend/`
+  to add it, which silently *removed* `prek`/`zizmor`/`smokeshow` from the
+  shared venv -- they're workspace-root `dev`/`github-actions` dependency
+  groups (root `pyproject.toml`), not part of `backend/pyproject.toml`'s
+  own `dependencies`, and this repo has exactly one `.venv` shared by the
+  whole uv workspace regardless of which member directory `uv sync` runs
+  from. `docs/development/setup.md` documented the exact bare `uv sync`
+  command that causes this -- meaning a fresh clone following that guide
+  verbatim would never get a working `prek run --all-files` gate at all.
+  Fixed the doc to use `uv sync --all-groups` and explained why, restored
+  the local venv the same way, and re-verified `uv run prek --version`/
+  `uv run zizmor --version` both work again before continuing.
+
+New tests: `backend/tests/observability/test_metrics.py` (5: the route
+returns valid Prometheus text, `note_llm_call`'s swap-counting logic in
+isolation, agent-turn latency/error metrics via a real `decide()` call, a
+real `Referee.run()` agent-seat timeout incrementing the counter, the
+registry never exposes anything but `botpit_*` names).
+`tests/rooms/test_room_service.py` (+2: `ACTIVE_GAMES` tracks a real
+start/finish cycle, `MOVES_TOTAL` increments on a real submitted move --
+both poll rather than assume `_finish_room`'s async completion callback
+already ran, matching this file's own established pattern for that race).
+`tests/rooms/test_rooms_ws.py` (+1: `ACTIVE_WS_CONNECTIONS` and the
+`ws.session` wide event's fields, over a real websocket connection) (787
+backend tests total; 59 Playwright tests, unchanged -- this phase touched
+no frontend code).
+
+Full gate: backend suite (787 tests) green, `ty`/`mypy`/`ruff` clean,
+verified the new `/metrics` route against the real built Docker image
+(not just `TestClient`), full Playwright suite (59 tests, unchanged)
+green against the real docker compose stack, `prek run --all-files` clean.
+
+### Review fixes (PR #23)
+
+`python-reviewer` reviewed the PR (no frontend changes this phase, so no
+`react-reviewer` pass). Verdict: approve, no CRITICAL/HIGH findings. Real,
+fixed anyway:
+
+- **Default histogram buckets didn't cover realistic LLM latency**
+  (MEDIUM): `prometheus_client`'s default buckets top out at 10s, but
+  `LLM_TIMEOUT_SECONDS` defaults to 120s -- exactly the range this metric
+  exists to characterize (a slow or VRAM-swapped call) would collapse
+  into one `+Inf` bucket, undercutting the whole point of the histogram.
+  Set explicit buckets (`0.5` through `120`, plus `+Inf`).
+- **A hard LLM failure recorded `latency_ms=0`** (LOW): `with_retries` may
+  have already spent real wall-clock time retrying before giving up, and
+  a persistent failure is exactly the call this histogram would most want
+  timed accurately. Now measures real elapsed time around the call
+  instead of hardcoding 0.
+
+**Verified, not fixed (already correct or already mitigated)**:
+`note_llm_call`'s synchronous check-then-write has no real race (no
+`await` between the read and write, same reasoning `ModelRegistry.client_for`
+already relies on -- confirmed by re-reading both); `_finish_room`'s
+unconditional `ACTIVE_GAMES.dec()` is correct in every real path (one
+narrow, pre-existing-condition edge case noted -- a DB commit failing
+immediately after a successful `runner.start()` -- already leaves
+`room.status` inconsistent before this PR, out of this phase's scope);
+`FakeLLMClient.base_url` being a shared constant combined with
+`note_llm_call`'s module-level dict never resetting between tests is a
+real test-isolation gap in the abstract, but every test already avoids it
+correctly (unique `base_url` per test, or before/after baseline diffing) --
+added a one-line comment on `FakeLLMClient.base_url` stating this
+explicitly, so a future test doesn't accidentally assert an absolute
+value there.
 
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 
