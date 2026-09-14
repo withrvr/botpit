@@ -114,7 +114,7 @@ not repeat those documents' detail — it summarizes and links to them.
   for no collector in this project's plan, and its own docs say it isn't
   designed for multi-process use.
 
-## Frontend (Phase 10, not yet built)
+## Frontend (Phase 10)
 
 - **React 19.3, TanStack Router 1.170/Query 5.102, TypeScript 6.0
   (see below), Tailwind 4.3, shadcn/ui, Vite 8.3, Bun 1.4**, built into
@@ -122,9 +122,14 @@ not repeat those documents' detail — it summarizes and links to them.
   client (`@hey-api/openapi-ts` 0.99) — the template's own stack, adopted
   at the Phase 2b pivot, kept current in Phase 9.6
   (`docs/development/dependency-audit.md`). `@tanstack/react-table` 9 (a
-  real v8→v9 migration, not just a version bump) is used by the still-template
-  `DataTable`/`Admin`/`Items` scaffolding; nothing here is a real botpit
-  feature yet.
+  real v8→v9 migration, not just a version bump) is still only used by the
+  template's own `Admin` scaffolding — the Items demo it also backed was
+  removed in Phase 10, not botpit's domain. Phase 10 built the real
+  lobby/create-room/join-by-code/live-game/spectator-focus-view screens on
+  top of a websocket push transport (`WS /rooms/{id}/ws`), a hand-written
+  card-and-visual-identity layer, and a reducer-based live-state hook
+  (`src/lib/roomLiveState.ts`) — see `PROGRESS.md`'s Phase 10 section for
+  the full write-up.
 - **TypeScript stays on 6.0**, not the newer major 7.0, because
   `@hey-api/openapi-ts` (the OpenAPI-to-TypeScript client generator this
   project's build depends on) crashes under TypeScript 7 — a confirmed,

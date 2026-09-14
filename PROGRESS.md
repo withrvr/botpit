@@ -39,7 +39,7 @@ branch; only the phase branch opens a PR into `master`.
 | 9.5 | Stabilize, document, rebrand | done 2026-09-13 (PR #15) |
 | 9.6 | Upgrade to latest stable versions | done 2026-09-13 (PR #17) |
 | 9.7 | Docker, CI/CD, and server-start optimization | done 2026-09-14 (branch phase-9.7-infra-optimization, PR pending) |
-| 10 | Frontend: play, spectate, admin, focus view | in progress (branch phase-10-frontend) |
+| 10 | Frontend: play, spectate, admin, focus view | done (branch phase-10-frontend, PR pending) |
 | 11 | Chat and personas | |
 | 12 | Leaderboard | |
 | 13 | Observability | |
@@ -508,7 +508,7 @@ detail: `docs/development/dependency-audit.md`.
   753 tests green, frontend `bun run build`/`bun run lint` clean,
   `prek run --all-files` clean.
 
-## Phase 10 — in progress (branch phase-10-frontend)
+## Phase 10 — done 2026-09-14 (branch phase-10-frontend)
 
 The real React frontend: play, spectate, admin, and the click-any-seat
 focus view (DECISIONS §10), replacing the template's login/settings/items
@@ -618,6 +618,120 @@ instead of hanging CI.
 
 Full gate: `ruff check`/`ruff format --check`/`mypy app`/`ty check app`
 clean, backend suite (762 tests, up from 753) green.
+
+### 3-6. Lobby, live game view, focus view, auth adaptation — done
+
+Built together in one continuous pass since the play/spectate/admin
+surfaces share the same live-state plumbing. Real screens, not scaffolding:
+
+- **`src/lib/events.ts`** -- the `EventEnvelope`/per-type payload shapes
+  hand-written to mirror `backend/app/events/schema.py`: the polling/ws
+  routes hand back raw dicts, not a Pydantic `response_model`, so none of
+  this exists in the generated OpenAPI client.
+- **`src/lib/roomLiveState.ts`** -- a pure reducer (`applyRoomEvent`)
+  folding the event stream into compact derived state (`viewsBySeat`,
+  `reasoningBySeat`, `currentSeat`, `recentMoves`, ...) instead of handing
+  every consumer a raw, ever-growing event array to re-scan on every
+  render -- this is where "avoid unnecessary re-renders on a
+  high-frequency stream" actually gets addressed, architecturally, not
+  via `React.memo` sprinkled after the fact.
+- **`src/hooks/useRoomSocket.ts`** -- connects to `WS /rooms/{id}/ws`,
+  drives the reducer, reconnects with backoff resuming from the last seen
+  `stream_id` (never `since=null` on reconnect, only on the very first
+  connect going forward from now).
+- **`src/lib/cards.ts` + `components/Rooms/Card.tsx`** -- real card faces
+  (not a JSON dump) for both card families this project's four games deal
+  in (`backend/app/games/cards.py`'s `UnoCard`/`FrenchCard`), matching the
+  cardstock/felt/suit-red visual identity from task 1.
+- **`components/Rooms/MoveList.tsx`** -- every game (`backend/app/games/*/moves.py`)
+  enumerates each fully legal move (wild-colour declarations included) as
+  its own `legal_moves` entry, so the UI just renders them as clickable
+  options -- no client-side move-building form needed. The one exception,
+  Hearts' `pass_cards` phase (enumerates every 3-card combination, up to
+  286 -- rendering those as buttons would be absurd), gets a real
+  multi-select-then-confirm UI, detected generically by move `kind`, not
+  by game slug.
+- **`components/Rooms/GameTable.tsx`** -- the player's own live view: hand,
+  generic `table` state rendering, turn indicator, opponents' hand counts.
+- **`components/Rooms/FocusView.tsx`** -- the privileged spectator/admin
+  view (DECISIONS.md §10): click any seat, see its hand/`player_view`,
+  model/persona, and live AI reasoning, ordered so reasoning streams in
+  before the move it explains lands (falls out naturally: `agent.reasoning`
+  publishes before `game.move_applied`/`game.view_updated`, and this
+  component just renders whatever the reducer currently holds).
+- **`components/Rooms/CreateRoomDialog.tsx` / `JoinByCode.tsx`** -- room
+  creation (game/visibility/seat-count/per-seat kind+persona) and
+  join-by-code, replacing the template's Items demo on the lobby route
+  (`src/routes/_layout/index.tsx`, now the public room list).
+- **`src/routes/_layout/rooms.$roomId.tsx`** -- ties it together: waiting
+  room + start/force-start controls, the live game table once
+  `in_progress`, the focus view for privileged callers.
+- Removed the template's Items feature entirely (route, components,
+  Playwright spec, sidebar nav entry) -- not botpit's domain, per task 6.
+- Chat explicitly **not** built here: `PROGRESS.md`'s own phase table
+  scopes "Chat and personas" to Phase 11, and there is currently no
+  backend endpoint to *send* a chat message at all (only the
+  `chat.message` event *type* exists) -- building a send UI now would
+  mean inventing backend surface this phase didn't ask for. The focus
+  view renders `chat.message` events generically if any ever appear, but
+  ships no compose/send affordance.
+
+**Real bugs found and fixed along the way** (via an actual two-human
+Playwright run against the real backend, not assumed):
+
+- `POST /rooms/join` returned the caller's seat but never the room's own
+  id -- a caller who joined by code had no way to navigate to the room at
+  all. Added `RoomSeatJoinPublic` (`backend/app/models.py`) as a proper
+  typed `response_model`, not a `dict` workaround.
+- `app/api/routes/private.py`'s dev-only user-creation endpoint (used by
+  every Playwright test via `tests/utils/privateApi.ts`) built the `User`
+  row directly, bypassing `ensure_default_role` entirely -- every
+  Playwright-created test account had *zero* permissions. Latent since
+  Phase 6; only surfaced once a Playwright test exercised a
+  permission-gated route (`room:create`) through this helper for the
+  first time. Fixed to match `app.crud.create_user`'s real-signup path.
+- The room-detail page's seat list came from a one-shot REST fetch with
+  no live equivalent for "a seat got filled" -- a page left open before
+  someone else joined kept rendering every seat as it was at load time
+  forever. Added `RoomLiveState.seatsVersion` (bumped on
+  `room.seat_filled`/`game.started`) and an effect that invalidates the
+  REST query when it changes.
+- `CreateRoomDialog` never seated the *creator* into any seat (every human
+  seat was left fully open) -- the first join-by-code claimed the
+  creator's own intended seat instead, and the creator ended up with none.
+  Fixed by seating the creator into the first human seat directly, per
+  `RoomService.create`'s own documented rule.
+
+**Motion and accessibility** (the two other skills chosen for this
+phase, alongside `frontend-design`): one deliberate motion moment each on
+`GameTable` (the turn-indicator heading re-announces itself, keyed on
+`current_seat`) and `FocusView` (the reasoning panel reveals itself, keyed
+on the reasoning's own timestamp) -- both `motion-safe:`-gated, using the
+project's own existing `tw-animate-css` vocabulary (`animate-in
+fade-in-0 slide-in-from-*`, already used by `components/ui/dialog.tsx`),
+not a new motion library. Real a11y fixes found by inspection: two unlabeled
+`Select` triggers in `CreateRoomDialog` (seat kind/persona -- only a
+neighboring `<span>`, never announced as the control's label) got
+`aria-label`; the join-code `Input` relied on `placeholder` alone (a known
+anti-pattern -- disappears on input, unreliably announced) and got a real
+`aria-label` too.
+
+**Tests**: `frontend/tests/rooms.spec.ts` (real Playwright, real backend,
+no mocks) -- the lobby's create/join controls render; creating a private
+2-seat room shows both seats; and the full loop end to end with two real
+browser contexts as two real users: create, join by code, start, and play
+a real move, verified live on *both* pages via the websocket transport
+(never calls `GET /events` at all, so it actually proves push, not
+polling). `tests/login.spec.ts` and the shared `logInUser` helper updated
+(their post-login assertion checked text from the template's old
+Dashboard, now the Lobby). `tests/items.spec.ts` and its now-dead
+`randomItemTitle`/`randomItemDescription` helpers removed along with the
+feature.
+
+Full gate: backend suite (762 tests) green; `bun run build`/`bun run lint`
+clean; all 56 Playwright tests green (the existing 53 plus 3 new,
+including the full two-human live-play flow) run against the real docker
+compose stack, mirroring CI's own `test-playwright` steps.
 
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 

@@ -10,8 +10,8 @@ the WSL/Ollama split specifically, see `DECISIONS.md` §0.5.
   `requires-python = ">=3.14,<4.0"`). Install uv per
   [its own docs](https://docs.astral.sh/uv/); it manages the interpreter too,
   so a separate Python install is not required.
-- **Bun** — the frontend package manager/runtime, needed once Phase 10's
-  frontend exists (`frontend/`).
+- **Bun** — the frontend package manager/runtime, for `frontend/`
+  (real screens as of Phase 10, not just template scaffolding).
 - **Docker** (Docker Engine, with Compose v2) — runs Postgres and Redis
   locally; also builds and runs the full stack behind Traefik if you want
   that instead of running the backend natively.
@@ -23,7 +23,7 @@ the WSL/Ollama split specifically, see `DECISIONS.md` §0.5.
 
 ```bash
 cd backend && uv sync    # Python deps, backend/.venv
-bun install               # frontend deps, once frontend/ exists (Phase 10)
+cd ../frontend && bun install   # frontend deps
 ```
 
 ## Environment variables
@@ -91,6 +91,15 @@ Running the backend inside Compose too (`docker compose watch`) works, but
 see the LLM backend note below for why AI seats need it to run natively
 during dev.
 
+```bash
+cd frontend && bun run dev   # Vite dev server, hot-reload, http://localhost:5173
+```
+
+`VITE_API_URL` defaults to same-origin (empty string) -- fine behind
+Traefik or when the backend's actual origin matches; point it at the
+backend directly if running the frontend dev server against a backend on
+a different host/port.
+
 ## LLM backend: the WSL/Ollama split
 
 Per `DECISIONS.md` §0.5: project code runs in WSL2; Ollama runs **natively
@@ -117,10 +126,9 @@ refuse to seat an AI player until `/api/v1/health/llm` reports healthy.
 
 ## Running the whole stack in one command
 
-`scripts/dev.sh` (added by a parallel task in this same phase, not covered
-here) is the one-command way to bring the entire stack — Postgres, Redis,
-the backend, and eventually the frontend — up together in tmux for local
-development.
+`scripts/dev.sh` is the one-command way to bring the entire stack —
+Postgres, Redis, the backend, and the frontend — up together in tmux for
+local development.
 
 ## Tests and linting
 

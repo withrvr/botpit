@@ -45,6 +45,7 @@ from app.models import (
     RoomCreate,
     RoomPublic,
     RoomSeat,
+    RoomSeatJoinPublic,
     RoomSeatPublic,
     RoomsPublic,
     TokenPayload,
@@ -188,6 +189,7 @@ def get_room(
 
 @router.post(
     "/join",
+    response_model=RoomSeatJoinPublic,
     dependencies=[
         Depends(rate_limit_from_setting("room:join", settings.RATE_LIMIT_ROOM_JOIN))
     ],
@@ -210,7 +212,7 @@ async def join_room(
         return JSONResponse(
             {"detail": str(exc), "queue": status.model_dump()}, status_code=409
         )
-    return _seat_public(seat)
+    return RoomSeatJoinPublic(**_seat_public(seat).model_dump(), room_id=seat.room_id)
 
 
 @router.post("/{room_id}/leave", response_model=Message)
