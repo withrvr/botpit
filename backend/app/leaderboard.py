@@ -12,9 +12,14 @@ that one game's durable participant record, immutable from the moment
 ``"waiting"``).
 
 Only ``outcome == "finished"`` games count: a ``"stopped"`` game's
-``winner_seat`` is ``None`` (docs/games.md), so it has no result to credit
-a win or loss for. It still happened, but "games played" here means "games
-that produced a result," matching what a leaderboard is for.
+``winner_seat`` is always ``None`` (docs/games.md), so it has no result to
+credit a win or loss for. A *finished* game's ``winner_seat`` can be
+``None`` too (``Referee.run()`` only credits a winner when the top-ranked
+seat's hand is empty, so a game whose ranking is score-based rather than
+hand-emptying can finish with no seat meeting that check) -- such a game
+still counts toward ``games_played`` for every seat in it, just credits no
+one a win, which is the right leaderboard behavior for "played, no
+determinable winner" rather than a bug to work around here.
 """
 
 from __future__ import annotations

@@ -67,6 +67,26 @@ Chronological, oldest first (template migrations, then botpit's own):
 | `a1b2c3d4e5f6` | RBAC: `role`, `permission`, `role_permission`, `user_role`, `room_role` (Phase 6, `docs/roles-and-permissions.md`) |
 | `ce9cf9ad654e` | rooms: `room`, `room_seat`, `runtime_setting`, `feature_flag`, `feature_flag_override`, plus the deferred `room_role.room_id` FK (Phase 7, `docs/rooms.md`) |
 | `f54e8ebd4583` | game history: `game_record`, `game_event` (Phase 9, `docs/games.md`) |
+| `30c74160ca50` | `leaderboard:view` permission + role grants (Phase 12, `docs/leaderboard.md`) |
+
+### Adding a permission after `a1b2c3d4e5f6`
+
+`a1b2c3d4e5f6` (the RBAC seed migration above) imports
+`ALL_PERMISSIONS`/`DEFAULT_ROLES` **live** from `app/authz/permissions.py`
+and re-evaluates them every time it runs -- not a frozen snapshot of what
+existed when it was written. That means on any database that has never
+run a migration before (a fresh CI run, a new deployment), *that* older
+migration seeds whatever permission set is current at the time it runs --
+including a permission added by a much later phase. A later migration
+that plain-inserts the same permission then collides with a row
+`a1b2c3d4e5f6` already seeded. `30c74160ca50` hit exactly this (a real CI
+failure on PR #22, never reproduced against the local dev DB because that
+DB had already applied `a1b2c3d4e5f6` long before the new permission
+existed). Any future migration that adds a permission needs
+`postgresql.insert(...).on_conflict_do_nothing(...)` instead of
+`op.bulk_insert`, correct on both a fresh database (a no-op, since
+`a1b2c3d4e5f6` already seeded it) and an existing one that predates the
+new permission (a real insert).
 
 ## How tests migrate
 

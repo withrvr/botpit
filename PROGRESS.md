@@ -1059,6 +1059,48 @@ Verified both paths directly against two throwaway Postgres containers
 with `permissions.py` temporarily reverted, then to the new head with it
 restored) rather than trusting the reasoning alone.
 
+### Review fixes (PR #22)
+
+`python-reviewer` and `react-reviewer` each reviewed the PR (plus an
+extra general-purpose review dispatched by mistake on the first attempt --
+kept its findings anyway since it independently re-verified the migration
+fix). Real, fixed:
+
+- **Game-filter `Select` had no accessible name** (react-reviewer, HIGH):
+  every other `Select` in this codebase pairs a `Label htmlFor`/`id` or an
+  explicit `aria-label` -- this was the only one with neither. Added
+  `aria-label="Filter by game"`.
+- **Loading/error state indistinguishable from "no games yet"**
+  (react-reviewer, HIGH): neither query checked `isLoading`/`isError`, so
+  every page load flashed a false empty state, and a real failure (a
+  permission regression, a 500) would render identically to "no games"
+  forever, hiding it. Factored a small shared `LeaderboardTable`
+  component (both tabs have the identical `LeaderboardEntry` shape) that
+  branches on loading/error/empty/data.
+- **Docstring overstated the finished/winner_seat relationship**
+  (general-purpose reviewer, doc nit): claimed only a `"stopped"` game has
+  `winner_seat == None`, but `Referee.run()`
+  (`winner = ranking[0] if hands[ranking[0]] == () else None`) can produce
+  that for a `"finished"` game too. Not a code bug -- `leaderboard.py`
+  already handles it correctly (counts toward `games_played`, credits no
+  one a win) -- just a comment that overclaimed. Corrected the module
+  docstring.
+- **Cheap insurance for future phases** (general-purpose reviewer's
+  suggestion): added a "Adding a permission after `a1b2c3d4e5f6`" section
+  to `docs/persistence.md` naming the exact trap this PR's own migration
+  hit, plus the missing `30c74160ca50` row in that doc's migration-chain
+  table.
+
+**Not fixed, deliberately**: react-reviewer's MEDIUM suggestion to gate
+the inactive tab's query behind `enabled` so only one of
+accounts/models fetches at a time. Left both fetching unconditionally --
+the aggregate query is cheap, and prefetching both means switching tabs is
+instant rather than showing a spinner; left a one-line comment stating
+this is deliberate rather than an oversight. Also not fixed: pagination on
+the two list routes (python-reviewer, MEDIUM) -- already documented as a
+found-but-deferred gap in `docs/leaderboard.md`'s "Left for later" section
+before either review even ran.
+
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 
 Infrastructure-only pass: Docker image build, Compose, CI/CD workflows,
