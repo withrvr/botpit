@@ -34,6 +34,9 @@ services:
   db:
     restart: always
 
+  redis:
+    restart: always
+
   adminer:
     restart: always
     labels:

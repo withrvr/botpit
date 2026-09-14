@@ -90,6 +90,12 @@ services:
       dockerfile: frontend/Dockerfile.playwright
       args:
         - NODE_ENV=production
+      # GHA-backed layer cache -- see the backend service's build block in
+      # compose.yml and docs/development/ci-cd-and-docker.md.
+      cache_from:
+        - type=gha,scope=playwright
+      cache_to:
+        - type=gha,scope=playwright,mode=max
     ipc: host
     depends_on:
       - backend

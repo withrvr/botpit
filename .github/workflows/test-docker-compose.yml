@@ -7,10 +7,38 @@ on:
   pull_request:
 permissions:
   contents: read
+  pull-requests: read  # dorny/paths-filter lists the PR's files
+
+concurrency:
+  group: test-docker-compose-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.filter.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            changed:
+              - backend/**
+              - frontend/**
+              - .env
+              - compose*.yml
+              - .github/workflows/test-docker-compose.yml
 
   test-docker-compose:
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -19,6 +47,10 @@ jobs:
         with:
           persist-credentials: false
       - run: docker compose build
+        env:
+          # Routes the build through buildx bake so the backend service's
+          # cache_from/cache_to: type=gha field actually applies.
+          COMPOSE_BAKE: "1"
       - run: docker compose down -v --remove-orphans
       - run: docker compose run --rm backend bash scripts/prestart.sh
       - run: docker compose up -d --wait backend adminer
