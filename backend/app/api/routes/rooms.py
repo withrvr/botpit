@@ -379,6 +379,39 @@ def submit_move(
     return Message(message="submitted")
 
 
+class ChatSend(BaseModel):
+    text: str
+
+
+@router.post(
+    "/{room_id}/chat",
+    response_model=Message,
+    dependencies=[
+        Depends(rate_limit_from_setting("room:chat", settings.RATE_LIMIT_CHAT))
+    ],
+)
+async def send_chat(
+    *,
+    service: RoomServiceDep,
+    user: CurrentUser,
+    room_id: uuid.UUID,
+    body: ChatSend,
+) -> Any:
+    """Publishes a public ``chat.message`` from the caller's own seat
+    (DECISIONS.md §8) -- own-seat-only, matching ``/view``/``/moves``, and
+    unlike those, works whether or not a game is currently running: chat
+    never touches game state (docs/rooms.md)."""
+    try:
+        await service.send_chat(user, room_id, body.text)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Room not found")
+    except NotSeatedError:
+        raise HTTPException(status_code=403, detail="not seated in this room")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return Message(message="sent")
+
+
 @router.get("/{room_id}/moves/schema")
 def moves_schema(
     *,
@@ -405,7 +438,7 @@ async def room_events(
     request: Request,
     user: CurrentUser,
     room_id: uuid.UUID,
-    since: Annotated[str | None, Query(pattern=r"^\d+-\d+$")] = None,
+    since: Annotated[str | None, Query(pattern=r"^\d+(-\d+)?$")] = None,
     limit: int = 200,
 ) -> Any:
     """Poll the room's event stream from ``since`` (an event's own

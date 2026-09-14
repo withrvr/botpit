@@ -40,7 +40,7 @@ branch; only the phase branch opens a PR into `master`.
 | 9.6 | Upgrade to latest stable versions | done 2026-09-13 (PR #17) |
 | 9.7 | Docker, CI/CD, and server-start optimization | done 2026-09-14 (branch phase-9.7-infra-optimization, PR pending) |
 | 10 | Frontend: play, spectate, admin, focus view | done (branch phase-10-frontend, PR pending) |
-| 11 | Chat and personas | |
+| 11 | Chat and personas | done (branch phase-11-chat-and-personas, PR pending) |
 | 12 | Leaderboard | |
 | 13 | Observability | |
 | 14 | CI/CD (local dry-run; no server yet) | |
@@ -825,6 +825,124 @@ test ran, on a machine neither this session nor either subagent's tool
 calls have any path to influence. Both `rooms.py` and `deps.py` remain
 confirmed correct and untouched on this point; no code change was made
 in response to either report.
+
+## Phase 11 — done 2026-09-14 (branch phase-11-chat-and-personas)
+
+Started by re-checking scope rather than assuming: personas
+(`app/agents/persona.py`, 6 built-ins) and AI-side chat generation
+(`AgentController.say()`, `build_chat_prompt`) already existed since
+Phase 5 -- an AI seat already chats in its own persona's voice and
+publishes real `chat.message` events. The actual gap was narrower than
+the phase name suggests: **humans had no way to send a chat message at
+all** (confirmed: zero `chat` routes anywhere), and `AgentController.hear()`
+existed but nothing ever called it, so an AI never learned about anyone
+else's chat either.
+
+- **`RoomService.send_chat(user, room_id, text)`** (`app/rooms/service.py`):
+  resolves the caller's own seat (`own_seat`, same as `/moves`/`/view`),
+  validates/strips text (empty or >200 chars -> `ValueError` -> 422,
+  matching the AI side's own 200-char cap), publishes a public
+  `chat.message`. Unlike `submit_move`, **not** gated on
+  `RoomNotRunningError` -- chat never touches game state (DECISIONS §8),
+  so it works in `waiting` too. If a game is running: tags the event with
+  that game's own `correlation.game_id` (so it archives alongside the
+  game exactly like an agent's own chat already does) and feeds the
+  message to every AI seat's `hear()` -- the first thing that ever calls
+  it. AI-to-AI `hear()` fan-out (one agent's chat reaching a sibling
+  agent's `recent_chat`) remains unwired -- a separate, older Phase-5 gap,
+  found while wiring the human side, deliberately not fixed here.
+- **`POST /rooms/{room_id}/chat`**: rate limited (`RATE_LIMIT_CHAT`,
+  already a scaffolded-but-unused setting, default `10/10`), 403 for an
+  unseated caller, 422 for empty/oversized text.
+- **Frontend**: `components/Rooms/Chat.tsx` -- message list (seat badge,
+  showing an AI seat's persona instead of a bare seat number) plus a
+  compose box, gated on having a seat (matching the backend's own-seat
+  rule, rather than letting a spectator submit and hit a confusing 403).
+  Wired into the room detail page for everyone, not just privileged
+  callers -- chat is public. Fixed a real type inaccuracy in
+  `src/lib/events.ts`/`roomLiveState.ts` found while building this:
+  `ChatMessagePayload.seat`/`ChatEntry.seat` were typed `number | null`;
+  the real schema (`ChatMessage(seat: int, text: str)`) never allows
+  `null`.
+- **Found and fixed while documenting the route** (not asked for, but a
+  direct accuracy/consistency issue): `GET /rooms/{room_id}/events`'s
+  `since` query pattern was still `^\d+-\d+$`, rejecting the bus's own
+  bare `"0"` convention -- the *websocket* route's identical pattern was
+  already widened to `^\d+(-\d+)?$` during PR #20's review-fix round, but
+  the polling route was missed, breaking the "both transports must never
+  diverge" principle Phase 10 was built on. Widened to match. Also found
+  `docs/api/api-reference.md`'s `WS /ws` row still documented the
+  pre-review-fix token flow (raw `access_token`) and the old `since`
+  pattern -- corrected, and added the `ws-ticket` row it was missing.
+
+New tests: `backend/tests/rooms/test_chat.py` (6 tests: send visible via
+`GET /events`, works before the game starts, 403 for an outsider, 422 for
+empty/oversized text, rate limited) and
+`test_room_service.py::test_send_chat_reaches_the_agent_seats_hear` (a
+pure, synchronous check of the `hear()` fan-out -- no real LLM call
+needed to observe it). `frontend/tests/rooms.spec.ts`: a real two-human
+chat exchange, both directions, both pages, confirmed live over the
+websocket (765 -> 772 backend tests; 56 -> 57 Playwright tests).
+
+Full gate: backend suite (772 tests) green, `bun run build`/`bun run lint`
+clean, full Playwright suite (57 tests) green against the real docker
+compose stack, `prek run --all-files` clean.
+
+### Review fixes (PR #21)
+
+`python-reviewer` and `react-reviewer` each reviewed the PR. Real, fixed:
+
+- **`Chat.tsx`'s `draft` compose-input state never reset on room switch**
+  (react-reviewer, HIGH): the exact same bug class already fixed once in
+  `useRoomSocket` during PR #20's review round -- `Chat` isn't remounted
+  just because `roomId` changes, so a half-typed message could survive a
+  room switch and get sent into the wrong room. Added a `[roomId]`-keyed
+  `useEffect` clearing `draft` (with a `biome-ignore` on
+  `useExhaustiveDependencies`, since `roomId` is a reset trigger here, not
+  a value the effect body actually reads).
+- **Chat message list had no `aria-live`/`role`** (react-reviewer, HIGH):
+  new messages arrive asynchronously over the websocket, independent of
+  any user action, with nothing telling a screen reader they arrived.
+  Added `role="log"` `aria-live="polite"` to the message-list container.
+- **`key={entry.ts + entry.seat}` was an unsafe, delimiter-less composite
+  key** (react-reviewer, MEDIUM): the server's `ts` (Python
+  `datetime.isoformat()`) is variable-length when microseconds are
+  exactly zero, so the concatenation isn't collision-safe. Threaded the
+  event envelope's own already-unique `event_id` into `ChatEntry`
+  (`roomLiveState.ts`) and keyed on that instead.
+- **`send_chat`'s `text` parameter shadowed the module-level `sqlalchemy
+  text()` import** (python-reviewer, MEDIUM): harmless today, but a trap
+  for the next edit to that method. Renamed the parameter to `message`.
+- **200-char chat cap was a bare magic number** (python-reviewer, MEDIUM):
+  named it `_MAX_CHAT_CHARS`, matching this file's own precedent
+  (`_MAX_CODE_ATTEMPTS`, `_START_LOCK_KEY`).
+
+**Not fixed, deliberately**: python-reviewer's optional suggestion to add
+a Pydantic-level `max_length` to `ChatSend.text` (LOW) -- skipped because
+`own_seat`'s identity check deliberately runs *before* any content
+validation (an unseated caller always gets 403, never a validation error
+that would leak whether their body was otherwise well-formed), and a
+schema-level length constraint would run before that check, inverting the
+order for oversized bodies. The existing per-user rate limit already
+bounds the abuse case; not worth the ordering trade for it. Also not
+fixed: the pre-existing (not introduced by this PR) dead `LookupError` ->
+404 branch on `/chat`, `/moves`, and `/view` -- none of the three ever
+call `service.get()`, so a nonexistent room 403s (via `own_seat`) rather
+than 404s. Consistent with existing precedent on the other two routes;
+flagged by python-reviewer as informational, not a regression.
+
+**The recurring tool-output anomaly is resolved.** python-reviewer traced
+it to ground truth: `except InvalidTokenError, ValidationError:` in
+`rooms.py`/`deps.py` is not Python-2 syntax at all -- it's valid under
+[PEP 758](https://peps.python.org/pep-0758/) (unparenthesized
+multi-exception `except`), accepted starting Python 3.14, and this
+project's `pyproject.toml` pins `requires-python = ">=3.14,<4.0"`.
+Confirmed parsing correctly under the project's actual `uv`-managed
+3.14.7 interpreter. There was never a phantom tool-reading bug -- every
+prior report of a "SyntaxError" here was a reviewer (human or agent)
+correctly reading genuinely new, valid syntax and misclassifying it as
+an old error. No code change needed; this closes out the anomaly noted
+repeatedly in Phase 10's review-fix section above.
 
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 

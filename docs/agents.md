@@ -151,8 +151,16 @@ default).
 - **Call 2** (`say`): after the referee applied the move it calls
   `build_chat_prompt` and publishes a non-empty `say` as `chat.message`
   (public). Failures are swallowed: chat never affects the game.
-- `hear(messages)` receives other seats' chat from the referee's fan-out;
-  the last 20 lines go into the next prompts.
+- `hear(messages)` feeds other seats' chat into the last 20 lines of
+  `recent_chat`, which go into the next prompts. Phase 11 (`docs/rooms.md`)
+  is the first thing that actually calls it: `RoomService.send_chat` feeds
+  a human's message to every AI seat's `hear()` right after publishing it.
+  Nothing calls `hear()` for one *agent's* chat reaching a sibling
+  agent's `recent_chat` yet -- `say()` only ever appends to its own seat's
+  list -- so an AI currently reacts to what humans say but not (yet) to
+  what other AI seats say. Found while wiring the human side; a real,
+  separate gap in the Phase 5-era referee/controller wiring, not
+  something Phase 11 was asked to fix.
 - Every call is recorded on the current wide event under `llm.calls`
   (model, latency, tokens, ok/error, repairs); Phase 13 turns these into
   Prometheus series.

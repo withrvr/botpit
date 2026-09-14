@@ -353,6 +353,44 @@ async def test_all_agent_room_starts_directly(
     assert runner.active() == []
 
 
+# -- chat (Phase 11) ----------------------------------------------------------
+
+
+def _human_and_agent(creator_id: uuid.UUID) -> RoomCreate:
+    return RoomCreate(
+        game="uno_classic",
+        seat_count=2,
+        visibility="private",
+        seats=[
+            RoomSeatSpec(kind="human", user_id=creator_id),
+            RoomSeatSpec(kind="agent"),
+        ],
+    )
+
+
+async def test_send_chat_reaches_the_agent_seats_hear(
+    db: Session, service: RoomService, runner: GameRunner
+) -> None:
+    """``send_chat`` feeds the message to every AI seat's ``hear()`` --
+    ``AgentController.hear`` existed but nothing called it before this, so
+    a human's chat never reached an agent's ``recent_chat`` at all. This
+    is a pure, synchronous effect of ``hear()`` itself -- no real LLM call
+    (``decide``/``say``) is needed to observe it."""
+    creator = create_random_user(db)
+    room = await service.create(creator, _human_and_agent(creator.id))
+    started = await service.start(room.id)
+    assert started.status == "in_progress"
+
+    await service.send_chat(creator, room.id, "good luck!")
+
+    running = runner.get(str(room.id))
+    agent_seat = next(s.seat for s in service.seats(room.id) if s.kind == "agent")
+    controller = running.controllers[agent_seat]
+    assert any(m.text == "good luck!" for m in controller.recent_chat)
+
+    await service.stop(room.id, "test cleanup")
+
+
 async def test_stop_on_a_room_that_never_started_is_a_safe_noop(
     db: Session, service: RoomService
 ) -> None:

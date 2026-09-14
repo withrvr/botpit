@@ -102,4 +102,59 @@ test.describe("Create and play a room", () => {
     await creatorContext.close()
     await joinerContext.close()
   })
+
+  test("Two human players can exchange chat, seen live on both pages", async ({
+    browser,
+  }) => {
+    const creatorEmail = randomEmail()
+    const creatorPassword = randomPassword()
+    const joinerEmail = randomEmail()
+    const joinerPassword = randomPassword()
+    await createUser({ email: creatorEmail, password: creatorPassword })
+    await createUser({ email: joinerEmail, password: joinerPassword })
+
+    const creatorContext = await browser.newContext()
+    const joinerContext = await browser.newContext()
+    const creatorPage = await creatorContext.newPage()
+    const joinerPage = await joinerContext.newPage()
+
+    await logInUser(creatorPage, creatorEmail, creatorPassword)
+    await logInUser(joinerPage, joinerEmail, joinerPassword)
+
+    await creatorPage.getByRole("button", { name: "Create room" }).click()
+    await creatorPage
+      .getByRole("button", { name: "Create", exact: true })
+      .click()
+
+    const codeText = await creatorPage.getByText(/^Code /).textContent()
+    const code = codeText?.replace("Code ", "").split(" ")[0] ?? ""
+    expect(code).not.toBe("")
+
+    await joinerPage.goto("/")
+    await joinerPage.getByPlaceholder("Join code").fill(code)
+    await joinerPage.getByRole("button", { name: "Join" }).click()
+    await joinerPage.waitForURL(/\/rooms\/.+/)
+
+    // Chat works before the game even starts (docs/rooms.md) -- no Start
+    // click needed for this test.
+    await creatorPage.getByLabel("Chat message").fill("good luck!")
+    await creatorPage.getByRole("button", { name: "Send" }).click()
+
+    await expect(joinerPage.getByText("good luck!")).toBeVisible({
+      timeout: 10_000,
+    })
+    // The sender's own page reflects the send too, over the same websocket
+    // that delivered it to the joiner -- not a locally-echoed optimistic
+    // update.
+    await expect(creatorPage.getByText("good luck!")).toBeVisible()
+
+    await joinerPage.getByLabel("Chat message").fill("thanks, you too")
+    await joinerPage.getByRole("button", { name: "Send" }).click()
+    await expect(creatorPage.getByText("thanks, you too")).toBeVisible({
+      timeout: 10_000,
+    })
+
+    await creatorContext.close()
+    await joinerContext.close()
+  })
 })

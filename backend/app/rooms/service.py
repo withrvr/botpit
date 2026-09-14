@@ -32,7 +32,14 @@ from app.agents import AgentController, get_persona
 from app.api.views import view_payload
 from app.authz.service import grant_role
 from app.core.db import engine
-from app.events import PUBLIC, EventBus, RoomCreated, SeatFilled, make_event
+from app.events import (
+    PUBLIC,
+    ChatMessage,
+    EventBus,
+    RoomCreated,
+    SeatFilled,
+    make_event,
+)
 from app.games import Seat, get_game
 from app.models import (
     GameEvent,
@@ -65,6 +72,7 @@ _CAPACITY_PROBE_KEY = "capacity-probe"
 # lock alone would not be enough.
 _START_LOCK_KEY = 0x726F6F6D_73746172  # arbitrary bigint, "room" + "star" as bytes
 _ROOM_CODE_UNIQUE_INDEX = "ix_room_code"
+_MAX_CHAT_CHARS = 200
 
 
 def _is_code_collision(exc: IntegrityError) -> bool:
@@ -695,3 +703,41 @@ class RoomService:
         if running.game.current_seat(running.state) != seat.seat:
             raise NotYourTurnError(f"seat {seat.seat} is not the current turn")
         self.runner.submit_move(str(room_id), seat.seat, move)
+
+    async def send_chat(self, user: User, room_id: uuid.UUID, message: str) -> None:
+        """Publishes ``message`` as a public ``chat.message`` from the
+        caller's own seat (DECISIONS.md §8: downstream-only, shared between
+        human and AI players). Unlike ``submit_move``, chat never touches
+        game state, so this works whether or not a game is currently
+        running -- there is no ``RoomNotRunningError`` gate here.
+
+        If a game *is* running: the message is fed to every AI seat's
+        ``hear()`` so personas actually react to what a human just said
+        (``AgentController.hear`` existed but nothing called it before this),
+        and tagged with that game's own ``correlation.game_id`` so it
+        archives alongside the game it was said during
+        (``RoomService._archive_game``, Phase 9) exactly like an agent's own
+        chat already does (``AgentController.say``).
+        """
+        seat = self.own_seat(user, room_id)
+        stripped = message.strip()
+        if not stripped:
+            msg = "chat message must not be empty"
+            raise ValueError(msg)
+        if len(stripped) > _MAX_CHAT_CHARS:
+            msg = f"chat message must be {_MAX_CHAT_CHARS} characters or fewer"
+            raise ValueError(msg)
+
+        chat = ChatMessage(seat=seat.seat, text=stripped)
+        game_id: str | None = None
+        with contextlib.suppress(KeyError):
+            running = self.runner.get(str(room_id))
+            game_id = running.referee.game_id
+            for controller in running.controllers.values():
+                if isinstance(controller, AgentController):
+                    controller.hear([chat])
+
+        correlation = {"game_id": game_id} if game_id else None
+        await self.bus.publish(
+            make_event(str(room_id), chat, PUBLIC, correlation=correlation)
+        )
