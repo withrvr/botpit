@@ -27,6 +27,7 @@ class P:
     ADMIN_MANAGE_ROLES = "admin:manage_roles"
     ADMIN_MANAGE_SETTINGS = "admin:manage_settings"
     ADMIN_MANAGE_FLAGS = "admin:manage_flags"
+    LEADERBOARD_VIEW = "leaderboard:view"
 
 
 ALL_PERMISSIONS: frozenset[str] = frozenset(
@@ -47,13 +48,14 @@ DEFAULT_ROLES: dict[str, tuple[Scope, str, frozenset[str]]] = {
                 P.ROOM_CHAT,
                 P.ROOM_VIEW,
                 P.ROOM_VIEW_PUBLIC,
+                P.LEADERBOARD_VIEW,
             }
         ),
     ),
     "spectator": (
         "global",
         "Can watch rooms.",
-        frozenset({P.ROOM_VIEW, P.ROOM_VIEW_PUBLIC}),
+        frozenset({P.ROOM_VIEW, P.ROOM_VIEW_PUBLIC, P.LEADERBOARD_VIEW}),
     ),
     "moderator": (
         "room",

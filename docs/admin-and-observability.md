@@ -41,4 +41,12 @@ moves per minute, model swaps.
 ## Admin dashboard (Phase 10/13)
 
 All rooms, per-room seats and status, force-stop, live log tail, runtime
-settings (capacity caps), feature flags, aggregate leaderboards.
+settings (capacity caps), feature flags.
+
+## Leaderboard (Phase 12, docs/leaderboard.md)
+
+Per human account and per model, DECISIONS.md §11. Ended up as its own
+top-level `/leaderboard` page rather than folded into the admin dashboard
+above: `leaderboard:view` is granted to every default role
+(`admin`/`player`/`spectator`), since a leaderboard is meant to be seen by
+players, not gated behind admin-only access.

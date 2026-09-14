@@ -16,6 +16,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
+import { Route as LayoutLeaderboardRouteImport } from './routes/_layout/leaderboard'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutRoomsRoomIdRouteImport } from './routes/_layout/rooms.$roomId'
 
@@ -53,6 +54,11 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutLeaderboardRoute = LayoutLeaderboardRouteImport.update({
+  id: '/leaderboard',
+  path: '/leaderboard',
+  getParentRoute: () => LayoutRoute,
+} as any)
 const LayoutSettingsRoute = LayoutSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -71,6 +77,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/admin': typeof LayoutAdminRoute
+  '/leaderboard': typeof LayoutLeaderboardRoute
   '/settings': typeof LayoutSettingsRoute
   '/rooms/$roomId': typeof LayoutRoomsRoomIdRoute
 }
@@ -80,6 +87,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/admin': typeof LayoutAdminRoute
+  '/leaderboard': typeof LayoutLeaderboardRoute
   '/settings': typeof LayoutSettingsRoute
   '/': typeof LayoutIndexRoute
   '/rooms/$roomId': typeof LayoutRoomsRoomIdRoute
@@ -92,6 +100,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/_layout/admin': typeof LayoutAdminRoute
+  '/_layout/leaderboard': typeof LayoutLeaderboardRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/': typeof LayoutIndexRoute
   '/_layout/rooms/$roomId': typeof LayoutRoomsRoomIdRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/admin'
+    | '/leaderboard'
     | '/settings'
     | '/rooms/$roomId'
   fileRoutesByTo: FileRoutesByTo
@@ -114,6 +124,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/admin'
+    | '/leaderboard'
     | '/settings'
     | '/'
     | '/rooms/$roomId'
@@ -125,6 +136,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/signup'
     | '/_layout/admin'
+    | '/_layout/leaderboard'
     | '/_layout/settings'
     | '/_layout/'
     | '/_layout/rooms/$roomId'
@@ -189,6 +201,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/leaderboard': {
+      id: '/_layout/leaderboard'
+      path: '/leaderboard'
+      fullPath: '/leaderboard'
+      preLoaderRoute: typeof LayoutLeaderboardRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/settings': {
       id: '/_layout/settings'
       path: '/settings'
@@ -208,6 +227,7 @@ declare module '@tanstack/react-router' {
 
 interface LayoutRouteChildren {
   LayoutAdminRoute: typeof LayoutAdminRoute
+  LayoutLeaderboardRoute: typeof LayoutLeaderboardRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
   LayoutRoomsRoomIdRoute: typeof LayoutRoomsRoomIdRoute
@@ -215,6 +235,7 @@ interface LayoutRouteChildren {
 
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAdminRoute: LayoutAdminRoute,
+  LayoutLeaderboardRoute: LayoutLeaderboardRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutIndexRoute: LayoutIndexRoute,
   LayoutRoomsRoomIdRoute: LayoutRoomsRoomIdRoute,
