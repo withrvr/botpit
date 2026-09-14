@@ -7,9 +7,39 @@ on:
   pull_request:
 permissions:
   contents: read
+  pull-requests: read  # dorny/paths-filter lists the PR's files
+
+concurrency:
+  group: test-backend-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.filter.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            changed:
+              - backend/**
+              - pyproject.toml
+              - uv.lock
+              - .env
+              - compose*.yml
+              - .github/workflows/test-backend.yml
+
   test-backend:
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

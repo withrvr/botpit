@@ -37,7 +37,8 @@ branch; only the phase branch opens a PR into `master`.
 | 8 | First live mixed game (terminal + API) | done 2026-09-13 (PR #13) |
 | 9 | Persistence and replay | done 2026-09-13 (PR #14) |
 | 9.5 | Stabilize, document, rebrand | done 2026-09-13 (PR #15) |
-| 9.6 | Upgrade to latest stable versions | done 2026-09-13 (branch phase-9.6-dependency-upgrade, PR pending) |
+| 9.6 | Upgrade to latest stable versions | done 2026-09-13 (PR #17) |
+| 9.7 | Docker, CI/CD, and server-start optimization | done 2026-09-14 (branch phase-9.7-infra-optimization, PR pending) |
 | 10 | Frontend: play, spectate, admin, focus view | |
 | 11 | Chat and personas | |
 | 12 | Leaderboard | |
@@ -506,6 +507,90 @@ detail: `docs/development/dependency-audit.md`.
 - Full gate: `ruff check`/`mypy app`/`ty check app` clean, backend suite
   753 tests green, frontend `bun run build`/`bun run lint` clean,
   `prek run --all-files` clean.
+
+## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
+
+Infrastructure-only pass: Docker image build, Compose, CI/CD workflows,
+server startup, and test execution -- no application logic, API/websocket
+behavior, or test content changed. Every Section 1 area got a documented
+verdict (already fine, or changed with reasoning and, where possible, a
+real before/after number). Full detail: `docs/development/ci-cd-and-docker.md`.
+
+- Docker image: `python:3.14` -> `python:3.14-slim` in `backend/Dockerfile`,
+  measured **2.13GB -> 707MB (-67%)**; added a non-root `app` user (uid/gid
+  1000); worker count now configurable via `WEB_CONCURRENCY` (shell-expansion
+  default, not a persistent `ENV`, so it can't leak into the dev-only
+  `fastapi dev` command). The slim swap broke the `curl`-based healthcheck
+  (no `curl` in `-slim`) -- fixed via a `python3`/`urllib.request` one-liner
+  in `compose.yml` instead of re-adding `curl`. `.dockerignore` (root,
+  `backend/`) hardened with `.env*`, `.pytest_cache`, `.ruff_cache`, `*.log`,
+  `packages/react-email/.react-email/`.
+- Compose: `compose.deploy.yml`'s `redis` service was missing
+  `restart: always` (present on every other service) -- added. Everything
+  else (named volumes, `condition: service_healthy` healthchecks, Compose
+  Watch) was already current best practice, confirmed and left alone.
+- CI: added `concurrency` groups (cancel stale in-flight runs on a new push)
+  to `test-backend.yml`, `playwright.yml`, `pre-commit.yml`,
+  `test-docker-compose.yml` -- `deploy-docker-compose.yml` already had one.
+  Added `dorny/paths-filter` gating to `test-backend.yml`/
+  `test-docker-compose.yml`, mirroring `playwright.yml`'s existing pattern.
+  Added GHA-backed Docker layer caching (`cache_from`/`cache_to: type=gha`
+  + `COMPOSE_BAKE=1`) for the `backend`/`playwright` builds, targeting the
+  4x-redundant independent build across Playwright's 4 parallel CI shards --
+  verified locally that the mechanism builds correctly; the real cross-run
+  cache-hit benefit needs confirming on the next CI push (no GHA cache
+  tokens exist locally to measure it honestly). Bumped stale
+  `bun-version: 1.3.12` -> `1.4.0` (matches local dev) in `playwright.yml`
+  (x2), `pre-commit.yml`, `deploy.yml`. Confirmed via empirical CI-log
+  inspection that uv's dependency cache (`setup-uv`'s `auto` default) was
+  already working correctly -- left alone rather than adding a redundant
+  `enable-cache: true`.
+- Server startup: readiness (`app/main.py`'s lifespan LLM health gate,
+  `health.py`'s real DB/bus check) and graceful shutdown (sequential
+  `GameRunner`/`ModelRegistry`/bus/Redis close in the lifespan's `finally`)
+  were already correct -- confirmed, no changes. Deliberately deferred the
+  Gunicorn-vs-bare-Uvicorn production question: current guidance supports
+  either depending on the eventual deploy target, and Phase 15 (real
+  deployment) hasn't picked one yet.
+- Test execution: checked `pytest-xdist` -- `tests/conftest.py`'s `db`
+  fixture is session-scoped against one real, shared Postgres database with
+  no per-worker isolation, so parallelizing would risk real cross-worker
+  collisions for a suite that's already fast (753 tests, ~53s). Not applied.
+  Checked `prestart.sh`'s lack of a wait-for-DB retry loop -- already
+  covered by `compose.yml`'s/CI's own `condition: service_healthy` /
+  `--wait` gating at the orchestration level. Not applied.
+- No branch protection exists on this repo (private, free tier -- confirmed
+  via the GitHub API), so the new path-filter-gated jobs needed no
+  `alls-green`-style wrapper the way `playwright.yml` already has.
+- Found, deliberately not fixed (Phase 14's job, matching the Phase 9.5/9.6
+  precedent for `.github/workflows/*` template logic): `deploy.yml`'s
+  leftover `if: github.repository != 'fastapi/full-stack-fastapi-template'`
+  template-org check.
+- Full gate: `ruff check`/`ruff format --check`/`mypy app`/`ty check app`
+  clean, backend suite 753 tests green, `prek run --all-files` clean
+  (including `zizmor` on every workflow edit). No application code touched
+  this phase, so the suite result is identical to before -- confirming
+  nothing broke, not that anything was fixed.
+- **Review fixes (PR #18):** `code-reviewer` and `python-reviewer` each
+  caught one real issue before merge. `python-reviewer`: the non-root
+  user's blanket `RUN chown -R app:app /app` forced overlay2 to copy up
+  every file from every earlier layer, quietly giving back ~430MB of the
+  size win (1.14GB with it, re-measured 707MB without) -- fixed by
+  chowning each layer's own output at creation time (`COPY --chown`,
+  `chown` appended inside the same `RUN` as `uv sync`) instead of one
+  blanket pass at the end. `code-reviewer`: the GHA Docker-cache
+  mechanism as first written would have been silently inert in CI, since
+  the `gha` cache backend needs buildx's `docker-container` driver and no
+  workflow provisioned it (confirmed locally: `docker buildx ls` shows
+  the default driver is plain `docker`) -- fixed by adding
+  `docker/setup-buildx-action` (`driver: docker-container`) before the
+  relevant `docker compose build` steps. Also fixed: a path-filter gap
+  (missing `pyproject.toml`/`uv.lock`/`bun.lock` in all three
+  `changes`-job filters, which could have let a dependency-only bump
+  skip its own test job) and an unquoted `${WEB_CONCURRENCY:-4}`
+  expansion in the Dockerfile's `CMD`. Re-verified after fixes: rebuilt
+  image, confirmed non-root `app` user can still import `app.main` and
+  the backend container reports healthy, full gate re-run clean.
 
 ## Phase 2 — done pending PR review
 

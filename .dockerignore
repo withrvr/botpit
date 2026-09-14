@@ -1,6 +1,10 @@
 .git
 **/__pycache__
 **/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/*.log
+.env*
 backend/htmlcov
 frontend/blob-report
 frontend/dist
@@ -8,3 +12,4 @@ frontend/node_modules
 frontend/playwright-report
 frontend/test-results
 node_modules
+packages/react-email/.react-email

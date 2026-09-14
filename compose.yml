@@ -90,7 +90,16 @@ services:
       - "host.docker.internal:host-gateway"
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/"]
+      # python3, not curl: python:3.14-slim doesn't ship curl, and adding it
+      # back just for a healthcheck would undo part of the point of the slim
+      # base. urlopen() raises (and this exits non-zero) on anything but 2xx.
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -98,6 +107,13 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      # GHA-backed layer cache (needs COMPOSE_BAKE=1 and Docker >=28 to take
+      # effect -- see docs/development/ci-cd-and-docker.md). Harmless outside
+      # CI: docker compose build ignores these fields without buildx bake.
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,scope=backend,mode=max
     labels:
       # Enable Traefik for this service
       - traefik.enable=true
