@@ -66,7 +66,7 @@ export function FocusView({ seats, live }: FocusViewProps) {
             </span>
             <div className="flex flex-wrap gap-2">
               {view.hand.map((card, index) => (
-                <Card key={index} card={card} />
+                <Card key={`${JSON.stringify(card)}-${index}`} card={card} />
               ))}
             </div>
           </div>

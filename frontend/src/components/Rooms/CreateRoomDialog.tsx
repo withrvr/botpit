@@ -157,7 +157,12 @@ export function CreateRoomDialog() {
               onValueChange={(value) => {
                 setGameSlug(value as (typeof GAMES)[number]["slug"])
                 const nextGame = GAMES.find((g) => g.slug === value) ?? GAMES[0]
-                setSeatCount(Math.max(seatKinds.length, nextGame.minSeats))
+                setSeatCount(
+                  Math.min(
+                    Math.max(seatKinds.length, nextGame.minSeats),
+                    nextGame.maxSeats,
+                  ),
+                )
               }}
             >
               <SelectTrigger id="game">

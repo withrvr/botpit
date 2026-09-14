@@ -350,3 +350,52 @@ def test_ws_since_resumes_without_missing_or_duplicating_events(
         "resumed feed repeated an old event"
     )
     assert resumed[: len(rest_since_cursor)] == rest_since_cursor
+
+
+# -- ws-ticket (review fix: short-lived ticket instead of the real bearer
+# token in the connection URL) ------------------------------------------
+
+
+def test_ws_ticket_is_bearer_authed(client: TestClient) -> None:
+    r = client.get(f"{API}/rooms/00000000-0000-0000-0000-000000000000/ws-ticket")
+    assert r.status_code == 401
+
+
+def test_ws_ticket_works_as_a_ws_token(client: TestClient, live_game: LiveGame) -> None:
+    """A ticket minted via the REST endpoint is a real, usable ws token --
+    proof the frontend can swap the long-lived bearer token for a
+    short-lived one without losing functionality."""
+    room_id, seats = live_game
+    headers = seats[0]
+
+    ticket = client.get(f"{API}/rooms/{room_id}/ws-ticket", headers=headers).json()[
+        "ticket"
+    ]
+    assert ticket != _token(headers), "ticket must not just echo the real token"
+
+    with client.websocket_connect(
+        f"{API}/rooms/{room_id}/ws?token={ticket}&since=0"
+    ) as ws:
+        events = _recv_until(
+            ws, lambda seen: any(e["type"] == "game.started" for e in seen), timeout=5.0
+        )
+    assert events
+
+
+def test_ws_since_accepts_bare_seq_not_just_hyphenated_cursor(
+    client: TestClient, live_game: LiveGame
+) -> None:
+    """Review fix: the query pattern used to require ``^\\d+-\\d+$``, so a
+    bare ``"0"`` (the bus's own "replay everything" convention,
+    docs/events.md) was rejected with a 422 even though the underlying bus
+    already treats it as meaningful."""
+    room_id, seats = live_game
+    token = _token(seats[0])
+
+    with client.websocket_connect(
+        f"{API}/rooms/{room_id}/ws?token={token}&since=0"
+    ) as ws:
+        events = _recv_until(
+            ws, lambda seen: any(e["type"] == "game.started" for e in seen), timeout=5.0
+        )
+    assert events

@@ -36,13 +36,24 @@ function moveLabel(move: Record<string, unknown>): string {
  * multi-select-then-confirm UI instead, detected generically by move kind
  * rather than by game slug.
  */
+/** Content-based identity for a card, not its position -- a standard deck
+ * (the only kind pass_cards applies to) never has two identical cards in
+ * one hand, so this is a safe, stable key. Needed because relying on
+ * array index (both for React's own `key` and for which indices actually
+ * get submitted) breaks if the hand's order or contents change between
+ * the render that recorded a selection and the render that submits it --
+ * e.g. any `game.view_updated` for this seat arriving mid-selection. */
+function cardKey(card: Record<string, unknown>): string {
+  return JSON.stringify(card)
+}
+
 export function MoveList({
   legalMoves,
   hand,
   onSubmit,
   submitting,
 }: MoveListProps) {
-  const [selected, setSelected] = useState<number[]>([])
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
 
   if (legalMoves.length === 0) {
     return (
@@ -53,41 +64,56 @@ export function MoveList({
   const isPassCards = legalMoves[0]?.kind === "pass_cards"
 
   if (isPassCards) {
-    const toggle = (index: number) => {
-      setSelected((prev) =>
-        prev.includes(index)
-          ? prev.filter((i) => i !== index)
+    const toggle = (key: string) => {
+      setSelectedKeys((prev) =>
+        prev.includes(key)
+          ? prev.filter((k) => k !== key)
           : prev.length < 3
-            ? [...prev, index]
+            ? [...prev, key]
             : prev,
       )
     }
     return (
       <div className="flex flex-col gap-3">
         <p className="text-sm text-muted-foreground">
-          Choose 3 cards to pass ({selected.length}/3 selected)
+          Choose 3 cards to pass ({selectedKeys.length}/3 selected)
         </p>
         <div className="flex flex-wrap gap-2">
-          {hand.map((card, index) => (
-            <button
-              key={index}
-              type="button"
-              onClick={() => toggle(index)}
-              aria-pressed={selected.includes(index)}
-              className="rounded-lg outline-offset-2 ring-offset-2 focus-visible:outline-2 focus-visible:outline-ring aria-pressed:ring-2 aria-pressed:ring-accent"
-            >
-              <Card card={card} />
-            </button>
-          ))}
+          {hand.map((card) => {
+            const key = cardKey(card)
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggle(key)}
+                aria-pressed={selectedKeys.includes(key)}
+                className="rounded-lg outline-offset-2 ring-offset-2 focus-visible:outline-2 focus-visible:outline-ring aria-pressed:ring-2 aria-pressed:ring-accent"
+              >
+                <Card card={card} />
+              </button>
+            )
+          })}
         </div>
         <Button
-          disabled={selected.length !== 3 || submitting}
-          onClick={() =>
+          disabled={selectedKeys.length !== 3 || submitting}
+          onClick={() => {
+            // Re-derive indices from the CURRENT hand at submit time,
+            // never from whatever positions were true when each card was
+            // clicked -- see cardKey's docstring above.
+            const remaining = [...selectedKeys]
+            const indices: number[] = []
+            hand.forEach((card, index) => {
+              const pos = remaining.indexOf(cardKey(card))
+              if (pos !== -1) {
+                indices.push(index)
+                remaining.splice(pos, 1)
+              }
+            })
             onSubmit({
               kind: "pass_cards",
-              cards: [...selected].sort((a, b) => a - b),
+              cards: indices.sort((a, b) => a - b),
             })
-          }
+          }}
         >
           Pass selected cards
         </Button>
@@ -97,9 +123,9 @@ export function MoveList({
 
   return (
     <div className="flex flex-wrap gap-2">
-      {legalMoves.map((move, index) => (
+      {legalMoves.map((move) => (
         <Button
-          key={index}
+          key={JSON.stringify(move)}
           variant="outline"
           disabled={submitting}
           onClick={() => onSubmit(move)}

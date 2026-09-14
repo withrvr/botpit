@@ -2196,6 +2196,40 @@ export type roomsRoomEventsResponses = {
     200: unknown;
 };
 
+export type roomsWsTicketData = {
+    body?: never;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rooms/{room_id}/ws-ticket';
+};
+
+export type roomsWsTicketErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsWsTicketError = roomsWsTicketErrors[keyof roomsWsTicketErrors];
+
+export type roomsWsTicketResponses = {
+    /**
+     * Response Rooms-Ws Ticket
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: string;
+    };
+};
+
+export type roomsWsTicketResponse = roomsWsTicketResponses[keyof roomsWsTicketResponses];
+
 export type gamesGetGameRecordData = {
     body?: never;
     path: {

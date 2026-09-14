@@ -70,7 +70,10 @@ export function GameTable({ view, onSubmitMove, submitting }: GameTableProps) {
         <span className="text-sm text-muted-foreground">Your hand</span>
         <div className="flex flex-wrap gap-2">
           {view.hand.map((card, index) => (
-            <Card key={index} card={card} />
+            // Content+index, not index alone -- a hand can hold two
+            // identical UNO cards, so pure content isn't a safe key on
+            // its own, but pure index churns harder across reorders.
+            <Card key={`${JSON.stringify(card)}-${index}`} card={card} />
           ))}
         </div>
       </div>

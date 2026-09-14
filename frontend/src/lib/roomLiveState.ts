@@ -78,11 +78,18 @@ export const INITIAL_ROOM_LIVE_STATE: RoomLiveState = {
 
 const MAX_LOG_ENTRIES = 100
 
+/** Not a real event type -- dispatched by `useRoomSocket` whenever `roomId`
+ * itself changes, so switching rooms without a full unmount doesn't leave
+ * the previous room's state visible. */
+export const RESET_EVENT_TYPE = "__reset__"
+
 export function applyRoomEvent(
   state: RoomLiveState,
   event: EventEnvelope,
 ): RoomLiveState {
   switch (event.type) {
+    case RESET_EVENT_TYPE:
+      return INITIAL_ROOM_LIVE_STATE
     case "room.created":
       return { ...state, roomStatus: "waiting" }
     case "room.seat_filled":

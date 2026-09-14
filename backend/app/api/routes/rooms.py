@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import Annotated, Any, Literal, cast
 
 import jwt
@@ -51,7 +52,7 @@ from app.models import (
     TokenPayload,
     User,
 )
-from app.ratelimit import rate_limit_from_setting
+from app.ratelimit import check_rate, rate_limit_from_setting
 from app.rooms.guard import resolve_subscriber, subscription_guard
 from app.rooms.queue import JoinQueue
 from app.rooms.service import (
@@ -212,7 +213,9 @@ async def join_room(
         return JSONResponse(
             {"detail": str(exc), "queue": status.model_dump()}, status_code=409
         )
-    return RoomSeatJoinPublic(**_seat_public(seat).model_dump(), room_id=seat.room_id)
+    return RoomSeatJoinPublic(
+        **_seat_public(seat, reveal=True).model_dump(), room_id=seat.room_id
+    )
 
 
 @router.post("/{room_id}/leave", response_model=Message)
@@ -420,6 +423,22 @@ async def room_events(
     }
 
 
+@router.get("/{room_id}/ws-ticket")
+def ws_ticket(*, user: CurrentUser, room_id: uuid.UUID) -> dict[str, str]:  # noqa: ARG001
+    """A short-lived (30s) token for ``WS /{room_id}/ws``. Browsers cannot
+    set a websocket's ``Authorization`` header, so the real, long-lived
+    ``access_token`` would otherwise have to travel as a URL query
+    parameter -- a much wider log-exposure surface (proxy/server access
+    logs, browser history) than a header ever gets, for the socket's
+    entire connection lifetime. This ticket is only ever useful for the
+    ~30s between issuing it and opening the socket; ``room_id`` isn't
+    actually checked here (real admission is rechecked by ``room_ws``
+    itself at connect time), it's only in the URL for symmetry with
+    ``/ws`` next to it."""
+    ticket = security.create_access_token(user.id, timedelta(seconds=30))
+    return {"ticket": ticket}
+
+
 def _current_user_ws(session: Session, token: str | None) -> User | None:
     """Same JWT check as ``app.api.deps.get_current_user``, adapted for a
     websocket connection: a browser's WebSocket API cannot set an
@@ -467,7 +486,7 @@ async def room_ws(
     session: SessionDep,
     room_id: uuid.UUID,
     token: str | None = Query(default=None),
-    since: Annotated[str | None, Query(pattern=r"^\d+-\d+$")] = None,
+    since: Annotated[str | None, Query(pattern=r"^\d+(-\d+)?$")] = None,
 ) -> None:
     """Push transport for ``GET /events`` -- the real-time transport
     ``docs/rooms.md`` left for Phase 10; the polling route stays as a
@@ -483,6 +502,21 @@ async def room_ws(
     own query param: omit for live-only, ``"0"`` to replay everything
     retained first, or a previously-seen ``stream_id`` to resume after it.
     """
+    # A connection attempt is cheap for a client but costs this handler a
+    # JWT decode plus (for a real room id) a service.get()/load_permissions()
+    # round-trip before ever refusing -- every other room route that does
+    # real work is rate limited (rate_limit_from_setting), but that
+    # dependency is coupled to CurrentUser's HTTP-only Authorization-header
+    # flow, which this route deliberately doesn't use (see _current_user_ws).
+    # Rate limit by client host instead, before touching the token at all.
+    client_host = websocket.client.host if websocket.client else "unknown"
+    allowed, _retry_after = await check_rate(
+        get_redis(), f"rl:room:ws:{client_host}", 20, 60
+    )
+    if not allowed:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     user = _current_user_ws(session, token)
     if user is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
