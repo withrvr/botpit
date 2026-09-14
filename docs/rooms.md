@@ -2,8 +2,11 @@
 
 Status: schema + service + HTTP routes + subscription guard done in Phase 7.
 Phase 8 adds the minimal live-play surface a human plays through: `/view`,
-`/moves`, `/moves/schema`, `/events` (HTTP polling, not a websocket/SSE
-transport — that stays Phase 10's job, see "Left for later" below).
+`/moves`, `/moves/schema`, `/events` (HTTP polling). Phase 10 adds `/ws`,
+a real-time push transport over the identical `subscription_guard`/
+`filter_for_subscriber` pipeline — see "Real-time transport" below. The
+polling route stays as a working fallback for any client that doesn't
+need push.
 
 A room is one instance of a game: game type, seat list (each seat human
 open / human invited / AI model+persona), status
@@ -195,17 +198,37 @@ room's DB row out of sync with what a fresh process will see on restart (no
 running task, but a row correctly marked `"stopped"` rather than a
 lingering `"in_progress"`).
 
+### Real-time transport (Phase 10)
+
+`GET /{room_id}/ws` is a websocket push transport over the exact same
+admission and filtering pipeline the polling route uses:
+`subscription_guard` resolves the caller's `Subscriber` once per connect
+(instead of once per poll), and every event on the bus is run through the
+identical `filter_for_subscriber` before being sent — visibility can never
+diverge between the two transports, because both call the same functions.
+
+Browsers cannot set a websocket's `Authorization` header, so the JWT
+travels as a query parameter instead (`?token=...`), validated with the
+same check `get_current_user` uses. Every refusal — a bad or missing
+token, an unknown room, a denied subscription — closes the socket with
+the identical code (`1008`, policy violation), so a caller can never tell
+"wrong token" apart from "no such room" apart from "not invited," matching
+the polling route's "never leak existence" 404-either-way rule.
+
+`?since=` resumes a dropped connection exactly like the polling route's
+own cursor: omit it for live-only (nothing retained is replayed), pass
+`"0-0"` to replay everything retained then continue live, or a previously
+seen event's own `stream_id` to resume after it. Full detail:
+`docs/api/api-reference.md`'s "Rooms" section; tests:
+`backend/tests/rooms/test_rooms_ws.py`.
+
 ### Left for later (explicitly, not silently)
 
-- **No websocket/SSE transport.** Phase 8 wires `subscription_guard` to a
-  real transport for the first time, but it is HTTP polling (`GET
-  /{room_id}/events?since=...`), not push. A real-time transport (websocket
-  or SSE) is Phase 10's job; the polling routes stay as a working fallback
-  either way.
-- **No admin multi-seat "focus view."** Phase 8's `/view` is one caller's
-  own seat only (`own_seat` refuses anyone without a human seat, even the
-  creator) — an admin/spectator view across every seat at once is Phase 10
-  per DECISIONS §1.7.
+- **No admin multi-seat "focus view" yet.** Phase 8's `/view` is one
+  caller's own seat only (`own_seat` refuses anyone without a human seat,
+  even the creator) — an admin/spectator view across every seat at once,
+  built on top of `/ws`'s privileged feed, is still Phase 10 work in
+  progress (DECISIONS §10).
 - **The join queue is read-only in this phase.** `capacity_check` reads
   `queue.snapshot` for its error payload, and the `/rooms/join` route reads
   it for a full room's 409 body, but neither `create` nor `join_by_code`

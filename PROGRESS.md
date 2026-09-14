@@ -574,6 +574,51 @@ tooling couldn't launch a browser target (`Target closed` on every
 attempt) — noted plainly in the doc rather than skipped silently; a real
 visual pass is still owed once there are real game screens to look at.
 
+### 2. Realtime transport — done
+
+`WS /rooms/{room_id}/ws` added to `backend/app/api/routes/rooms.py`: a
+websocket push transport over the *exact same* `subscription_guard`/
+`filter_for_subscriber` pipeline `GET /events` uses (`resolve_subscriber`
+resolved once per connect instead of once per poll; the guard's own logic
+is untouched, per `docs/rooms.md`'s own anticipated design). Auth travels
+as a `?token=` query param (browsers cannot set a websocket's
+`Authorization` header) through a small `_current_user_ws` helper mirroring
+`get_current_user`'s JWT check; every refusal (bad/missing token, unknown
+room, denied subscription) closes with the identical `1008` code, so a
+caller can never distinguish one from another -- preserving the REST
+layer's "never leak existence" rule on the new transport too. `?since=`
+resumes exactly like the polling route's own cursor. Docs updated:
+`docs/rooms.md` (new "Real-time transport" section, replacing the stale
+"left for later" note), `docs/api/api-reference.md` (new route row plus
+the events-and-visibility intro), `llms.txt` ("Current transport").
+
+Found and fixed one real discovery mid-implementation:
+`backend/app/api/deps.py` briefly appeared, through every text-reading
+tool (`Read`, `sed`, `git show`, even Python's own `open()`), to contain
+invalid Python-2-style `except` syntax with a matching fabricated sha256
+-- while three independent behavioral checks (a fresh bytecode compile
+with the cache forcibly cleared, a module import reaching past that exact
+line into an unrelated circular-import failure, and the full 753-test
+suite passing clean) proved the real file was never broken. Treated as a
+tool-output integrity anomaly for that one read, not a real bug, and left
+untouched -- flagged to the user rather than "fixed" based on
+self-contradicting evidence.
+
+New tests: `backend/tests/rooms/test_rooms_ws.py` (9 tests) -- auth/
+admission (missing token, invalid token, denied subscription, unknown
+room, all closing `1008`), parity with `GET /events` for an identical
+subscriber, the two security-boundary tests mirrored from
+`test_rooms_live.py` (non-privileged player never sees another seat's
+view; privileged sees every seat's), a genuine live-push test that never
+calls `GET /events` at all, and a reconnect/resume test. `receive_json()`
+has no native timeout and would hang the whole suite if a real regression
+ever silently stopped delivering events -- wrapped in a bounded
+`ThreadPoolExecutor`-based timeout so a transport bug fails one test
+instead of hanging CI.
+
+Full gate: `ruff check`/`ruff format --check`/`mypy app`/`ty check app`
+clean, backend suite (762 tests, up from 753) green.
+
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 
 Infrastructure-only pass: Docker image build, Compose, CI/CD workflows,

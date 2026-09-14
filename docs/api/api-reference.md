@@ -9,9 +9,10 @@ valid `Authorization: Bearer <JWT>` (via `CurrentUser`/`SessionDep`'s
 
 For the room/game event system's payload shapes and visibility rules, see
 "Events and visibility" at the end of this document — that section covers
-both the live polling routes (`GET /rooms/{id}/events`) and the durable
-archive routes (`GET /games/{id}/events`) together, since they share one
-filtering mechanism.
+the live polling route (`GET /rooms/{id}/events`), the live push route
+(`WS /rooms/{id}/ws`), and the durable archive route (`GET
+/games/{id}/events`) together, since all three share one filtering
+mechanism.
 
 ## Auth (`login.py`, no route prefix)
 
@@ -129,6 +130,7 @@ caller (the room's creator, or a holder of `room:view_seat_detail`);
 | `POST /rooms/{room_id}/moves` | own human seat only + rate limit (`RATE_LIMIT_ROOM_MOVE`, default `30/10`) | `MoveSubmission {move: dict}` (≤4096 bytes serialized) | `Message` | `422` oversized body, `404` unknown room, `403` not seated, `409` game not running or not your turn |
 | `GET /rooms/{room_id}/moves/schema` | subscription-guard admitted (seated or privileged) | — | the game's move JSON Schema (`move_json_schema`) | `404` denied or unknown room |
 | `GET /rooms/{room_id}/events` | subscription-guard admitted (seated or privileged) | query `since` (pattern `^\d+-\d+$`), `limit` (default 200) | `{"events": [...], "next_since": <cursor>}` | `422` malformed `since`, `404` denied or unknown room |
+| `WS /rooms/{room_id}/ws` | JWT in `?token=` query param (browsers cannot set a websocket's `Authorization` header); subscription-guard admitted (seated or privileged) | query `token`, optional `since` (pattern `^\d+-\d+$`, omit for live-only) | a stream of `EventEnvelope` JSON frames, filtered identically to `GET /events` | closes with `1008` (policy violation) for a bad/missing token, unknown room, or denied subscription — the three are never distinguishable, matching `GET /{room_id}`'s 404-either-way rule |
 
 ## Games (`games.py`, prefix `/games`) — durable history, Postgres-backed, never the live bus
 

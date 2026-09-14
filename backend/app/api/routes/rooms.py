@@ -14,14 +14,29 @@ import uuid
 from collections.abc import Sequence
 from typing import Annotated, Any, Literal, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+import jwt
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
+from jwt.exceptions import InvalidTokenError
+from pydantic import BaseModel, ValidationError, field_validator
+from sqlmodel import Session
 
 from app.api.deps import CurrentUser, JoinQueueDep, RoomServiceDep, SessionDep
 from app.authz import P, current_permissions, require_permission
+from app.authz.service import load_permissions
+from app.core import security
 from app.core.config import settings
-from app.events import filter_for_subscriber
+from app.core.redis import get_redis
+from app.events import Subscriber, filter_for_subscriber
 from app.games import get_game
 from app.games.move_schema import move_json_schema
 from app.models import (
@@ -32,16 +47,19 @@ from app.models import (
     RoomSeat,
     RoomSeatPublic,
     RoomsPublic,
+    TokenPayload,
     User,
 )
 from app.ratelimit import rate_limit_from_setting
-from app.rooms.guard import resolve_subscriber
+from app.rooms.guard import resolve_subscriber, subscription_guard
+from app.rooms.queue import JoinQueue
 from app.rooms.service import (
     NotSeatedError,
     NotYourTurnError,
     RoomFullError,
     RoomNotRunningError,
     RoomNotWaitingError,
+    RoomService,
 )
 
 router = APIRouter(prefix="/rooms", tags=["rooms"])
@@ -284,11 +302,15 @@ async def room_queue(
 
 # -- live play (Phase 8: the minimal API a human plays through) -------------
 #
-# No websocket/SSE transport yet -- a terminal or script client polls
-# GET /events with the cursor it last saw, reads GET /view to know whose
-# turn it is and what it may do, and posts to POST /moves when it is theirs.
-# subscription_guard (app/rooms/guard.py, written and table-tested in Phase 7)
-# is used here for the first time by a real transport.
+# GET /events (HTTP polling) and /ws (push, Phase 10) are two transports over
+# the identical subscription_guard/filter_for_subscriber pipeline -- neither
+# one's visibility can diverge from the other's, since both call the exact
+# same functions. A terminal or script client can still poll GET /events
+# with the cursor it last saw; a browser client uses /ws for a live table.
+# Either way: read GET /view to know whose turn it is and what it may do,
+# and post to POST /moves when it is theirs. subscription_guard
+# (app/rooms/guard.py, written and table-tested in Phase 7) is what both
+# transports gate on.
 
 
 @router.get("/{room_id}/view")
@@ -394,3 +416,93 @@ async def room_events(
         "events": [e.model_dump(mode="json") for e in visible],
         "next_since": events[-1].stream_id if events else since,
     }
+
+
+def _current_user_ws(session: Session, token: str | None) -> User | None:
+    """Same JWT check as ``app.api.deps.get_current_user``, adapted for a
+    websocket connection: a browser's WebSocket API cannot set an
+    ``Authorization`` header, so the token travels as a query parameter
+    (``?token=...``) instead. Returns ``None`` rather than raising, so the
+    caller closes the socket with one uniform code regardless of *why* the
+    connection is refused (see ``room_ws`` below) -- a bad/missing token
+    must not be distinguishable from a denied subscription."""
+    if token is None:
+        return None
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]
+        )
+        token_data = TokenPayload(**payload)
+    except InvalidTokenError, ValidationError:
+        return None
+    user = session.get(User, token_data.sub)
+    if user is None or not user.is_active:
+        return None
+    return user
+
+
+def _resolve_subscriber_ws(
+    service: RoomService, session: Session, user: User, room_id: uuid.UUID
+) -> Subscriber | None:
+    """The same ``subscription_guard`` ``GET /events`` uses, resolved once
+    per connect instead of once per poll (docs/rooms.md's "left for later"
+    note) -- the guard's own logic is untouched. Calls ``load_permissions``
+    directly rather than going through ``current_permissions``'s
+    per-HTTP-request cache, which has nothing to share across for a single
+    one-shot check on connect."""
+    try:
+        room = service.get(room_id)
+    except LookupError:
+        return None
+    perms = load_permissions(session, user.id, room_id)
+    return subscription_guard(room, service.seats(room_id), user, perms)
+
+
+@router.websocket("/{room_id}/ws")
+async def room_ws(
+    *,
+    websocket: WebSocket,
+    session: SessionDep,
+    room_id: uuid.UUID,
+    token: str | None = Query(default=None),
+    since: Annotated[str | None, Query(pattern=r"^\d+-\d+$")] = None,
+) -> None:
+    """Push transport for ``GET /events`` -- the real-time transport
+    ``docs/rooms.md`` left for Phase 10; the polling route stays as a
+    working fallback for any client that doesn't need push. Same admission
+    (``subscription_guard``) and filtering (``filter_for_subscriber``)
+    pipeline as the polling route, so visibility can never diverge between
+    the two transports. Every refusal (bad/missing token, unknown room,
+    denied subscription) closes with the identical code, matching the REST
+    layer's "never leak existence" 404-either-way rule -- a caller cannot
+    tell "wrong token" from "no such room" from "not invited" apart.
+
+    ``since`` resumes a dropped connection exactly like the polling route's
+    own query param: omit for live-only, ``"0"`` to replay everything
+    retained first, or a previously-seen ``stream_id`` to resume after it.
+    """
+    user = _current_user_ws(session, token)
+    if user is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    service = RoomService(
+        session,
+        websocket.app.state.runner,
+        JoinQueue(get_redis()),
+        websocket.app.state.model_registry,
+        websocket.app.state.bus,
+    )
+    subscriber = _resolve_subscriber_ws(service, session, user, room_id)
+    if subscriber is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await websocket.accept()
+    try:
+        async for event in service.bus.subscribe(str(room_id), since=since):
+            filtered = filter_for_subscriber(event, subscriber)
+            if filtered is not None:
+                await websocket.send_json(filtered.model_dump(mode="json"))
+    except WebSocketDisconnect:
+        pass
