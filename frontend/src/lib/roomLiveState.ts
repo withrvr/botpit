@@ -34,7 +34,7 @@ export interface MoveLogEntry {
 }
 
 export interface ChatEntry {
-  seat: number | null
+  seat: number
   text: string
   ts: string
 }

@@ -35,6 +35,16 @@ export type Body_login_login_access_token = {
 };
 
 /**
+ * ChatSend
+ */
+export type ChatSend = {
+    /**
+     * Text
+     */
+    text: string;
+};
+
+/**
  * FeatureFlagOverrideCreate
  */
 export type FeatureFlagOverrideCreate = {
@@ -2126,6 +2136,36 @@ export type roomsSubmitMoveResponses = {
 };
 
 export type roomsSubmitMoveResponse = roomsSubmitMoveResponses[keyof roomsSubmitMoveResponses];
+
+export type roomsSendChatData = {
+    body: ChatSend;
+    path: {
+        /**
+         * Room Id
+         */
+        room_id: string;
+    };
+    query?: never;
+    url: '/api/v1/rooms/{room_id}/chat';
+};
+
+export type roomsSendChatErrors = {
+    /**
+     * Validation Error
+     */
+    422: HTTPValidationError;
+};
+
+export type roomsSendChatError = roomsSendChatErrors[keyof roomsSendChatErrors];
+
+export type roomsSendChatResponses = {
+    /**
+     * Successful Response
+     */
+    200: Message;
+};
+
+export type roomsSendChatResponse = roomsSendChatResponses[keyof roomsSendChatResponses];
 
 export type roomsMovesSchemaData = {
     body?: never;

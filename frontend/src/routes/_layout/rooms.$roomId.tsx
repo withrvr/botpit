@@ -4,6 +4,7 @@ import { useEffect } from "react"
 import { toast } from "sonner"
 
 import { RoomsService } from "@/client"
+import { Chat } from "@/components/Rooms/Chat"
 import { FocusView } from "@/components/Rooms/FocusView"
 import { GameTable } from "@/components/Rooms/GameTable"
 import { Badge } from "@/components/ui/badge"
@@ -164,6 +165,13 @@ function RoomDetail() {
           <FocusView seats={room.seats} live={live} />
         </div>
       ) : null}
+
+      <Chat
+        roomId={roomId}
+        chatLog={live.chatLog}
+        seats={room.seats}
+        mySeat={mySeat?.seat ?? null}
+      />
     </div>
   )
 }

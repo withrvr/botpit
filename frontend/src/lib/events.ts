@@ -103,6 +103,6 @@ export interface AgentReasoningPayload {
 }
 
 export interface ChatMessagePayload {
-  seat: number | null
+  seat: number
   text: string
 }
