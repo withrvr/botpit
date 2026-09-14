@@ -1035,6 +1035,30 @@ Full gate: backend suite (779 tests) green, `ty`/`mypy`/`ruff` clean,
 `bun run build`/`bun run lint` clean, full Playwright suite (59 tests)
 green against the real docker compose stack, `prek run --all-files` clean.
 
+### CI caught a real migration bug before merge (PR #22)
+
+`test-backend`/`pre-commit` failed on a fresh CI database:
+`UniqueViolation` on `permission_pkey` for `leaderboard:view`. Root cause:
+`a1b2c3d4e5f6_rbac.py` (the original Phase 6 seed migration) imports
+`ALL_PERMISSIONS`/`DEFAULT_ROLES` *live* from `app/authz/permissions.py`
+and re-evaluates them every time it runs -- so on any database that has
+never run a migration before (a fresh CI run, a new deployment), that
+older migration runs first and already sees `leaderboard:view` in the
+*current* module state, seeding it itself. The new migration
+(`30c74160ca50`) then tried to insert the identical row again with a plain
+`op.bulk_insert` and collided on the unique constraint. This never
+reproduced locally because the local dev DB had already applied
+`a1b2c3d4e5f6` long before `leaderboard:view` existed -- the exact
+scenario the new migration was written for, not the fresh-database one CI
+actually hit. Fixed by switching both inserts to
+`postgresql.insert(...).on_conflict_do_nothing(...)`, correct either way:
+a no-op if the old migration already seeded it (fresh DB), a real insert
+if it didn't (an existing DB migrated before this permission existed).
+Verified both paths directly against two throwaway Postgres containers
+(one migrated clean from scratch; one migrated to the pre-Phase-12 head
+with `permissions.py` temporarily reverted, then to the new head with it
+restored) rather than trusting the reasoning alone.
+
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 
 Infrastructure-only pass: Docker image build, Compose, CI/CD workflows,

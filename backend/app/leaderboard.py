@@ -28,7 +28,9 @@ from app.models import GameRecord, LeaderboardEntry, RoomSeat, User
 
 
 def _wins() -> Any:
-    return func.sum(case((col(GameRecord.winner_seat) == col(RoomSeat.seat), 1), else_=0))
+    return func.sum(
+        case((col(GameRecord.winner_seat) == col(RoomSeat.seat), 1), else_=0)
+    )
 
 
 def leaderboard_by_account(
