@@ -1192,6 +1192,40 @@ verified the new `/metrics` route against the real built Docker image
 (not just `TestClient`), full Playwright suite (59 tests, unchanged)
 green against the real docker compose stack, `prek run --all-files` clean.
 
+### Review fixes (PR #23)
+
+`python-reviewer` reviewed the PR (no frontend changes this phase, so no
+`react-reviewer` pass). Verdict: approve, no CRITICAL/HIGH findings. Real,
+fixed anyway:
+
+- **Default histogram buckets didn't cover realistic LLM latency**
+  (MEDIUM): `prometheus_client`'s default buckets top out at 10s, but
+  `LLM_TIMEOUT_SECONDS` defaults to 120s -- exactly the range this metric
+  exists to characterize (a slow or VRAM-swapped call) would collapse
+  into one `+Inf` bucket, undercutting the whole point of the histogram.
+  Set explicit buckets (`0.5` through `120`, plus `+Inf`).
+- **A hard LLM failure recorded `latency_ms=0`** (LOW): `with_retries` may
+  have already spent real wall-clock time retrying before giving up, and
+  a persistent failure is exactly the call this histogram would most want
+  timed accurately. Now measures real elapsed time around the call
+  instead of hardcoding 0.
+
+**Verified, not fixed (already correct or already mitigated)**:
+`note_llm_call`'s synchronous check-then-write has no real race (no
+`await` between the read and write, same reasoning `ModelRegistry.client_for`
+already relies on -- confirmed by re-reading both); `_finish_room`'s
+unconditional `ACTIVE_GAMES.dec()` is correct in every real path (one
+narrow, pre-existing-condition edge case noted -- a DB commit failing
+immediately after a successful `runner.start()` -- already leaves
+`room.status` inconsistent before this PR, out of this phase's scope);
+`FakeLLMClient.base_url` being a shared constant combined with
+`note_llm_call`'s module-level dict never resetting between tests is a
+real test-isolation gap in the abstract, but every test already avoids it
+correctly (unique `base_url` per test, or before/after baseline diffing) --
+added a one-line comment on `FakeLLMClient.base_url` stating this
+explicitly, so a future test doesn't accidentally assert an absolute
+value there.
+
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 
 Infrastructure-only pass: Docker image build, Compose, CI/CD workflows,

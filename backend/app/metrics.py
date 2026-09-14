@@ -29,6 +29,11 @@ AGENT_TURN_LATENCY_SECONDS = Histogram(
     "botpit_agent_turn_latency_seconds",
     "Latency of one LLM completion call within an agent's turn",
     ["model"],
+    # `prometheus_client`'s default buckets top out at 10s -- useless here:
+    # `LLM_TIMEOUT_SECONDS` defaults to 120s, and a slow/VRAM-swapped local
+    # model call landing anywhere past 10s (exactly what this metric exists
+    # to characterize) would otherwise collapse into one +Inf bucket.
+    buckets=(0.5, 1, 2, 5, 10, 20, 30, 60, 90, 120, float("inf")),
     registry=REGISTRY,
 )
 AGENT_TURN_ERRORS_TOTAL = Counter(

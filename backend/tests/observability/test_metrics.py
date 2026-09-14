@@ -8,6 +8,7 @@ fixtures they need (``ACTIVE_GAMES``/``MOVES_TOTAL`` in
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 
 from fastapi.testclient import TestClient
@@ -123,10 +124,8 @@ async def test_agent_turn_timeout_increments_the_counter() -> None:
         task.cancel()
         raise AssertionError("agent turn never timed out within 5s")
     task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
     assert AGENT_TURN_TIMEOUTS_TOTAL.labels(model=model)._value.get() == before + 1
 
 
