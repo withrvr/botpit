@@ -888,6 +888,62 @@ Full gate: backend suite (772 tests) green, `bun run build`/`bun run lint`
 clean, full Playwright suite (57 tests) green against the real docker
 compose stack, `prek run --all-files` clean.
 
+### Review fixes (PR #21)
+
+`python-reviewer` and `react-reviewer` each reviewed the PR. Real, fixed:
+
+- **`Chat.tsx`'s `draft` compose-input state never reset on room switch**
+  (react-reviewer, HIGH): the exact same bug class already fixed once in
+  `useRoomSocket` during PR #20's review round -- `Chat` isn't remounted
+  just because `roomId` changes, so a half-typed message could survive a
+  room switch and get sent into the wrong room. Added a `[roomId]`-keyed
+  `useEffect` clearing `draft` (with a `biome-ignore` on
+  `useExhaustiveDependencies`, since `roomId` is a reset trigger here, not
+  a value the effect body actually reads).
+- **Chat message list had no `aria-live`/`role`** (react-reviewer, HIGH):
+  new messages arrive asynchronously over the websocket, independent of
+  any user action, with nothing telling a screen reader they arrived.
+  Added `role="log"` `aria-live="polite"` to the message-list container.
+- **`key={entry.ts + entry.seat}` was an unsafe, delimiter-less composite
+  key** (react-reviewer, MEDIUM): the server's `ts` (Python
+  `datetime.isoformat()`) is variable-length when microseconds are
+  exactly zero, so the concatenation isn't collision-safe. Threaded the
+  event envelope's own already-unique `event_id` into `ChatEntry`
+  (`roomLiveState.ts`) and keyed on that instead.
+- **`send_chat`'s `text` parameter shadowed the module-level `sqlalchemy
+  text()` import** (python-reviewer, MEDIUM): harmless today, but a trap
+  for the next edit to that method. Renamed the parameter to `message`.
+- **200-char chat cap was a bare magic number** (python-reviewer, MEDIUM):
+  named it `_MAX_CHAT_CHARS`, matching this file's own precedent
+  (`_MAX_CODE_ATTEMPTS`, `_START_LOCK_KEY`).
+
+**Not fixed, deliberately**: python-reviewer's optional suggestion to add
+a Pydantic-level `max_length` to `ChatSend.text` (LOW) -- skipped because
+`own_seat`'s identity check deliberately runs *before* any content
+validation (an unseated caller always gets 403, never a validation error
+that would leak whether their body was otherwise well-formed), and a
+schema-level length constraint would run before that check, inverting the
+order for oversized bodies. The existing per-user rate limit already
+bounds the abuse case; not worth the ordering trade for it. Also not
+fixed: the pre-existing (not introduced by this PR) dead `LookupError` ->
+404 branch on `/chat`, `/moves`, and `/view` -- none of the three ever
+call `service.get()`, so a nonexistent room 403s (via `own_seat`) rather
+than 404s. Consistent with existing precedent on the other two routes;
+flagged by python-reviewer as informational, not a regression.
+
+**The recurring tool-output anomaly is resolved.** python-reviewer traced
+it to ground truth: `except InvalidTokenError, ValidationError:` in
+`rooms.py`/`deps.py` is not Python-2 syntax at all -- it's valid under
+[PEP 758](https://peps.python.org/pep-0758/) (unparenthesized
+multi-exception `except`), accepted starting Python 3.14, and this
+project's `pyproject.toml` pins `requires-python = ">=3.14,<4.0"`.
+Confirmed parsing correctly under the project's actual `uv`-managed
+3.14.7 interpreter. There was never a phantom tool-reading bug -- every
+prior report of a "SyntaxError" here was a reviewer (human or agent)
+correctly reading genuinely new, valid syntax and misclassifying it as
+an old error. No code change needed; this closes out the anomaly noted
+repeatedly in Phase 10's review-fix section above.
+
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 
 Infrastructure-only pass: Docker image build, Compose, CI/CD workflows,

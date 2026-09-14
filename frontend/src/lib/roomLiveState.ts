@@ -37,6 +37,11 @@ export interface ChatEntry {
   seat: number
   text: string
   ts: string
+  /** The event's own globally-unique id (uuid4 hex, server-assigned) --
+   * used as the list key instead of deriving one from `ts`+`seat`, since
+   * `ts` (Python `datetime.isoformat()`) is variable-length and the two
+   * concatenated fields aren't delimited. */
+  eventId: string
 }
 
 export interface RoomLiveState {
@@ -159,7 +164,12 @@ export function applyRoomEvent(
     }
     case "chat.message": {
       const p = event.payload as unknown as ChatMessagePayload
-      const entry: ChatEntry = { seat: p.seat, text: p.text, ts: event.ts }
+      const entry: ChatEntry = {
+        seat: p.seat,
+        text: p.text,
+        ts: event.ts,
+        eventId: event.event_id,
+      }
       return {
         ...state,
         chatLog: [...state.chatLog, entry].slice(-MAX_LOG_ENTRIES),

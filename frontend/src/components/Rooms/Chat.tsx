@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import type { RoomSeatPublic } from "@/client"
 import { RoomsService } from "@/client"
@@ -31,6 +31,15 @@ export function Chat({ roomId, chatLog, seats, mySeat }: ChatProps) {
   const [draft, setDraft] = useState("")
   const { showErrorToast } = useCustomToast()
 
+  // Same bug class fixed once already in useRoomSocket: without this, a
+  // half-typed message survives a room switch and can get sent into the
+  // wrong room. roomId isn't read in the body -- it's a reset trigger, not
+  // a data dependency.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: roomId is the reset trigger, not a body dependency
+  useEffect(() => {
+    setDraft("")
+  }, [roomId])
+
   const mutation = useMutation({
     mutationFn: (text: string) =>
       RoomsService.sendChat({ path: { room_id: roomId }, body: { text } }),
@@ -46,15 +55,16 @@ export function Chat({ roomId, chatLog, seats, mySeat }: ChatProps) {
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
       <h2 className="font-display text-lg">Chat</h2>
-      <div className="flex max-h-64 flex-col gap-2 overflow-y-auto">
+      <div
+        role="log"
+        aria-live="polite"
+        className="flex max-h-64 flex-col gap-2 overflow-y-auto"
+      >
         {chatLog.length === 0 ? (
           <p className="text-sm text-muted-foreground">No messages yet.</p>
         ) : (
           chatLog.map((entry) => (
-            <div
-              key={entry.ts + entry.seat}
-              className="flex items-start gap-2 text-sm"
-            >
+            <div key={entry.eventId} className="flex items-start gap-2 text-sm">
               <Badge variant="outline" className="shrink-0">
                 {seatLabel(entry.seat)}
               </Badge>

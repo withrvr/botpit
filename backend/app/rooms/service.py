@@ -72,6 +72,7 @@ _CAPACITY_PROBE_KEY = "capacity-probe"
 # lock alone would not be enough.
 _START_LOCK_KEY = 0x726F6F6D_73746172  # arbitrary bigint, "room" + "star" as bytes
 _ROOM_CODE_UNIQUE_INDEX = "ix_room_code"
+_MAX_CHAT_CHARS = 200
 
 
 def _is_code_collision(exc: IntegrityError) -> bool:
@@ -703,12 +704,12 @@ class RoomService:
             raise NotYourTurnError(f"seat {seat.seat} is not the current turn")
         self.runner.submit_move(str(room_id), seat.seat, move)
 
-    async def send_chat(self, user: User, room_id: uuid.UUID, text: str) -> None:
-        """Publishes ``text`` as a public ``chat.message`` from the caller's
-        own seat (DECISIONS.md §8: downstream-only, shared between human and
-        AI players). Unlike ``submit_move``, chat never touches game state,
-        so this works whether or not a game is currently running -- there is
-        no ``RoomNotRunningError`` gate here.
+    async def send_chat(self, user: User, room_id: uuid.UUID, message: str) -> None:
+        """Publishes ``message`` as a public ``chat.message`` from the
+        caller's own seat (DECISIONS.md §8: downstream-only, shared between
+        human and AI players). Unlike ``submit_move``, chat never touches
+        game state, so this works whether or not a game is currently
+        running -- there is no ``RoomNotRunningError`` gate here.
 
         If a game *is* running: the message is fed to every AI seat's
         ``hear()`` so personas actually react to what a human just said
@@ -719,12 +720,12 @@ class RoomService:
         chat already does (``AgentController.say``).
         """
         seat = self.own_seat(user, room_id)
-        stripped = text.strip()
+        stripped = message.strip()
         if not stripped:
             msg = "chat message must not be empty"
             raise ValueError(msg)
-        if len(stripped) > 200:
-            msg = "chat message must be 200 characters or fewer"
+        if len(stripped) > _MAX_CHAT_CHARS:
+            msg = f"chat message must be {_MAX_CHAT_CHARS} characters or fewer"
             raise ValueError(msg)
 
         chat = ChatMessage(seat=seat.seat, text=stripped)
