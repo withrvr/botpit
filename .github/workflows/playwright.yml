@@ -40,6 +40,9 @@ jobs:
           changed:
             - backend/**
             - frontend/**
+            - pyproject.toml
+            - uv.lock
+            - bun.lock
             - .env
             - compose*.yml
             - .github/workflows/playwright.yml
@@ -79,6 +82,13 @@ jobs:
     - run: bun ci
       working-directory: frontend
     - run: bash scripts/generate-client.sh
+    - name: Set up Docker Buildx
+      # The default "docker" buildx driver doesn't support the `gha` cache
+      # exporter/importer the compose build sections below rely on -- only
+      # docker-container (and a couple of others) do.
+      uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      with:
+        driver: docker-container
     - run: docker compose build
       env:
         # Routes the build through buildx bake so the backend/playwright

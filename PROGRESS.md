@@ -517,7 +517,7 @@ verdict (already fine, or changed with reasoning and, where possible, a
 real before/after number). Full detail: `docs/development/ci-cd-and-docker.md`.
 
 - Docker image: `python:3.14` -> `python:3.14-slim` in `backend/Dockerfile`,
-  measured **2.13GB -> 1.14GB (-46%)**; added a non-root `app` user (uid/gid
+  measured **2.13GB -> 707MB (-67%)**; added a non-root `app` user (uid/gid
   1000); worker count now configurable via `WEB_CONCURRENCY` (shell-expansion
   default, not a persistent `ENV`, so it can't leak into the dev-only
   `fastapi dev` command). The slim swap broke the `curl`-based healthcheck
@@ -571,6 +571,26 @@ real before/after number). Full detail: `docs/development/ci-cd-and-docker.md`.
   (including `zizmor` on every workflow edit). No application code touched
   this phase, so the suite result is identical to before -- confirming
   nothing broke, not that anything was fixed.
+- **Review fixes (PR #18):** `code-reviewer` and `python-reviewer` each
+  caught one real issue before merge. `python-reviewer`: the non-root
+  user's blanket `RUN chown -R app:app /app` forced overlay2 to copy up
+  every file from every earlier layer, quietly giving back ~430MB of the
+  size win (1.14GB with it, re-measured 707MB without) -- fixed by
+  chowning each layer's own output at creation time (`COPY --chown`,
+  `chown` appended inside the same `RUN` as `uv sync`) instead of one
+  blanket pass at the end. `code-reviewer`: the GHA Docker-cache
+  mechanism as first written would have been silently inert in CI, since
+  the `gha` cache backend needs buildx's `docker-container` driver and no
+  workflow provisioned it (confirmed locally: `docker buildx ls` shows
+  the default driver is plain `docker`) -- fixed by adding
+  `docker/setup-buildx-action` (`driver: docker-container`) before the
+  relevant `docker compose build` steps. Also fixed: a path-filter gap
+  (missing `pyproject.toml`/`uv.lock`/`bun.lock` in all three
+  `changes`-job filters, which could have let a dependency-only bump
+  skip its own test job) and an unquoted `${WEB_CONCURRENCY:-4}`
+  expansion in the Dockerfile's `CMD`. Re-verified after fixes: rebuilt
+  image, confirmed non-root `app` user can still import `app.main` and
+  the backend container reports healthy, full gate re-run clean.
 
 ## Phase 2 — done pending PR review
 

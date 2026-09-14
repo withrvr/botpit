@@ -30,6 +30,8 @@ jobs:
           filters: |
             changed:
               - backend/**
+              - pyproject.toml
+              - uv.lock
               - .env
               - compose*.yml
               - .github/workflows/test-backend.yml

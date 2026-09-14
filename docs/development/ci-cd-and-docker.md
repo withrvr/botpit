@@ -18,8 +18,8 @@ ordering. This is astral-sh's own documented Docker pattern for `uv`,
 already implemented correctly.
 
 **Changed — base image, measured:** `python:3.14` → `python:3.14-slim`.
-Measured on this machine: **2.13GB → 1.14GB (46% smaller)**. `docker
-history` attributed the difference to `python:3.14`'s apt/Debian-base
+Measured on this machine: **2.13GB → 707MB (67% smaller)**. `docker
+history` attributed the initial difference to `python:3.14`'s apt/Debian-base
 layers (compilers, dev headers) that this image never needs at
 runtime — every Python dependency here is a prebuilt wheel
 (`psycopg[binary]` bundles its own `libpq`).
@@ -37,10 +37,20 @@ This swap broke two things, both fixed:
   at all. See "Server startup."
 
 **Changed — non-root user:** added a `groupadd`/`useradd` (uid/gid 1000,
-no home dir) + `chown -R app:app /app` + `USER app`, placed after every
-root-owned build step (`uv sync`, `COPY`) but before `CMD`. Verified
-`prestart.sh` (Alembic migrations + initial-data seed) runs correctly as
-this user against the slim base.
+no home dir) + `USER app`, placed after every root-owned build step
+(`uv sync`, `COPY`) but before `CMD`. The first version of this change
+used a blanket `RUN chown -R app:app /app` at the very end — a
+`python-reviewer` pass on the PR caught that this forces overlay2 to
+copy up every file from every earlier layer into a brand-new layer,
+which re-measurement confirmed: it was single-handedly responsible for
+**~430MB** of the image (1.14GB with it vs. 707MB without). Fixed by
+having each layer chown only the files it creates, at creation time
+(`COPY --chown=app:app ...`; `chown -R app:app /app/.venv` appended
+*inside* the same `RUN` that runs `uv sync`, not a separate later step)
+— no cross-layer copy-up, same correct final ownership. Verified
+`prestart.sh` (Alembic migrations + initial-data seed) still runs
+correctly as this user against the slim base, and that the `app` user
+can import `app.main` and reach a healthy `/health/` endpoint.
 
 **Changed — `.dockerignore` hardening** (root, `backend/`): added
 `.env*`, `.pytest_cache`, `.ruff_cache`, `*.log`, and
@@ -79,11 +89,24 @@ Docker/buildx). This was the single highest-value, not-previously-covered
 gap: Playwright's CI job runs 4 parallel shards, each independently
 running `docker compose build` for the same backend/playwright images
 with zero cache sharing between them — a 4x-redundant build on every
-push. Verified locally that the compose files with these fields parse
-and build correctly (`COMPOSE_BAKE=1 docker compose build backend` /
-`playwright`, both succeed). The actual cross-run/cross-shard cache-hit
-benefit can only be confirmed on GitHub's own runners — local builds have
-no `ACTIONS_CACHE_URL`/`ACTIONS_RUNTIME_TOKEN`, so there's nothing to
+push.
+
+The `gha` cache exporter/importer only works on buildx's
+`docker-container` (or `kubernetes`/`remote`) driver, not the default
+`docker` driver every fresh Docker install (and every GitHub-hosted
+runner) starts with — a `code-reviewer` pass on the PR caught that this
+repo's workflows enabled `COMPOSE_BAKE=1` without ever provisioning that
+driver, which would have made the whole mechanism silently inert in CI
+(`docker buildx ls` on this machine confirms the default builder is
+`docker`, not `docker-container` — the same starting point a fresh
+runner has). Fixed by adding a `docker/setup-buildx-action` step
+(`driver: docker-container`) before the `docker compose build` steps in
+both `playwright.yml` and `test-docker-compose.yml`. Verified locally
+with a real `docker-container` builder (`docker buildx create --driver
+docker-container --use`) that the compose build still succeeds. The
+actual cross-run/cross-shard cache-hit benefit can only be confirmed on
+GitHub's own runners — local builds have no
+`ACTIONS_CACHE_URL`/`ACTIONS_RUNTIME_TOKEN`, so there's nothing to
 measure here honestly; check the next CI run's build step timing (shards
 2-4 should be much faster than shard 1) to confirm.
 
@@ -129,6 +152,17 @@ in full on every push/PR regardless of relevance. Added the same
 `changes` job pattern to both (scoped to `backend/**` for
 `test-backend.yml`; `backend/**` + `frontend/**` for
 `test-docker-compose.yml`, since it also serves the built frontend).
+
+All three `changes` filters (including the pre-existing one in
+`playwright.yml`) were also missing the root-level `pyproject.toml` and
+`uv.lock` (and, for the two frontend-touching workflows, `bun.lock`) —
+`code-reviewer` caught that a dependency-only bump to those files
+(exactly what Dependabot/`uv lock --upgrade` produce, and exactly what
+`guard-dependencies.yml` gates for org membership) touches none of
+`backend/**`/`frontend/**` and so would have skipped the entire
+test/Playwright job, merging an untested dependency change. Added
+`pyproject.toml`/`uv.lock`/`bun.lock` to all three filters.
+
 No `alls-green`-style wrapper job was needed for these two, unlike
 `playwright.yml`'s `alls-green-playwright`: this repo has **no branch
 protection configured** (confirmed via `gh api
@@ -240,6 +274,20 @@ marginal benefit given the real isolation risk — not applied.
 
 | Change | Before | After |
 |---|---|---|
-| Backend image size | 2.13GB | 1.14GB (-46%) |
+| Backend image size | 2.13GB | 707MB (-67%) |
 | uv dependency cache (CI) | already working (`auto` default) | unchanged, verified |
-| Docker layer cache (CI) | none (4x redundant build per Playwright run) | `type=gha`, mechanism verified locally; cross-run hit rate to confirm on next CI push |
+| Docker layer cache (CI) | none (4x redundant build per Playwright run) | `type=gha` + `docker-container` buildx driver, mechanism verified locally; cross-run hit rate to confirm on next CI push |
+
+## Review fixes (PR #18)
+
+Two review passes (`code-reviewer`, `python-reviewer`) on the PR caught
+two real issues before merge, both described in-place above rather than
+repeated here: the non-root user's blanket `chown -R` was quietly giving
+back ~430MB of the size win (fixed by chowning per-layer instead), and
+the GHA Docker-cache mechanism as first written would have been silently
+inert in CI because no workflow provisioned the `docker-container` buildx
+driver the `gha` cache backend requires (fixed by adding
+`docker/setup-buildx-action`). Also fixed: a path-filter gap (missing
+`pyproject.toml`/`uv.lock`/`bun.lock`) that could have let a
+dependency-only change skip its own test job, and an unquoted
+`${WEB_CONCURRENCY:-4}` expansion in the Dockerfile's `CMD`.
