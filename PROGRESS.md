@@ -39,7 +39,7 @@ branch; only the phase branch opens a PR into `master`.
 | 9.5 | Stabilize, document, rebrand | done 2026-09-13 (PR #15) |
 | 9.6 | Upgrade to latest stable versions | done 2026-09-13 (PR #17) |
 | 9.7 | Docker, CI/CD, and server-start optimization | done 2026-09-14 (branch phase-9.7-infra-optimization, PR pending) |
-| 10 | Frontend: play, spectate, admin, focus view | |
+| 10 | Frontend: play, spectate, admin, focus view | in progress (branch phase-10-frontend) |
 | 11 | Chat and personas | |
 | 12 | Leaderboard | |
 | 13 | Observability | |
@@ -507,6 +507,72 @@ detail: `docs/development/dependency-audit.md`.
 - Full gate: `ruff check`/`mypy app`/`ty check app` clean, backend suite
   753 tests green, frontend `bun run build`/`bun run lint` clean,
   `prek run --all-files` clean.
+
+## Phase 10 — in progress (branch phase-10-frontend)
+
+The real React frontend: play, spectate, admin, and the click-any-seat
+focus view (DECISIONS §10), replacing the template's login/settings/items
+scaffolding as botpit's actual UI. `docs/rooms.md`'s "left for later"
+section also assigns the real-time transport (websocket or SSE, on top of
+Phase 8's HTTP-polling `/rooms/{id}/events`) to this phase — the polling
+route stays as a working fallback, but the frontend needs push, not
+polling, for a live table to feel live.
+
+Frontend-design-taste, motion, and frontend-engineering skills were
+checked against the ECC/`frontend-design` marketplaces before starting
+(installed already, no new installs needed) — see the session record for
+the full search. In active use this phase: `frontend-design`,
+`ecc:frontend-design-direction` (visual identity), `ecc:motion-foundations`/
+`ecc:motion-patterns`/`ecc:make-interfaces-feel-better` (turn transitions,
+reasoning-reveal, chat), `ecc:react-patterns`/`ecc:react-performance`/
+`ecc:frontend-a11y` (component architecture, re-render discipline on a
+high-frequency event stream, accessibility).
+
+Planned task breakdown (not all worktree-parallel — the realtime
+transport blocks the live-view work, so that ordering is sequential; the
+rest split reasonably across independent files):
+
+1. **Visual identity** (`frontend-design`) — done, see below.
+2. **Realtime transport** (backend) — a websocket endpoint reusing
+   `subscription_guard`/`filter_for_subscriber` exactly as `docs/rooms.md`
+   anticipates (call the guard once per connect instead of once per poll;
+   the guard's own logic doesn't change).
+3. **Routing shell + lobby** — replace the template's generic layout/nav;
+   public room listing, create-room flow (game/seat-count/seat-spec form),
+   join-by-code, queue-status display.
+4. **Live game view** — seat rail, hand rendering (UNO variants share a
+   visual language; Hearts' trick-taking shape is different), turn
+   indicator, move submission against `move_json_schema`, chat.
+5. **Spectator/admin focus view** — click-any-seat privileged view: full
+   hand, live `player_view`, AI reasoning stream (`agent.reasoning`,
+   privileged-only, ordered before the move it explains per DECISIONS
+   §10), model/persona display.
+6. **Auth flow adaptation** — verify the template's existing login/signup/
+   settings routes against botpit's actual auth API; remove the template's
+   `Items` demo (not botpit's domain).
+7. **Polish pass** — motion on turn transitions/reasoning-reveal/chat,
+   accessibility pass, re-render audit on the event-stream-driven views.
+
+### 1. Visual identity — done
+
+`frontend/src/index.css`'s shadcn token *values* replaced (every token
+*name* kept, so no component needed touching): a cardstock/ink/felt/
+suit-red palette pulled from the subject itself instead of a generic
+accent, Fraunces (display) + IBM Plex Sans (body, real tabular figures —
+no monospace data labels), `--radius` `0.625rem` -> `0.5rem`. Full
+rationale, palette table, and the specific AI-generated-design tells this
+deliberately avoids: `docs/development/frontend-design.md`.
+
+Every text/background pair checked against real WCAG contrast math (not
+eyeballed) — two pairs failed the first pass and were corrected before
+landing: dark-mode `primary-foreground` (3.11:1 -> 5.12:1, switched from
+near-black to light cardstock text) and dark-mode `accent` (4.46:1 ->
+5.24:1, `#e14a44` -> `#e6605a`). `bun run build`/`bun run lint` clean.
+
+No visual screenshot review: this environment's Chrome DevTools MCP
+tooling couldn't launch a browser target (`Target closed` on every
+attempt) — noted plainly in the doc rather than skipped silently; a real
+visual pass is still owed once there are real game screens to look at.
 
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 
