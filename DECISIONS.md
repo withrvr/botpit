@@ -47,7 +47,7 @@ mode) and all-human.
   Everything is built local-first but server-shaped: Docker Compose with
   Postgres and Redis runs locally, the Redis event bus and the Postgres
   schema are exercised locally, and the deploy workflows are written and
-  dry-run locally. Hosting research (`docs/deployment.md`) stands as the
+  dry-run locally. Hosting research (`docs/deployment/`) stands as the
   plan for when that day comes; nothing in the code assumes a particular host.
 
 ## 2. Configuration and capacity, RESOLVED 2026-09-12

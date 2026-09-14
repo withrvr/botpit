@@ -42,8 +42,8 @@ branch; only the phase branch opens a PR into `master`.
 | 10 | Frontend: play, spectate, admin, focus view | done 2026-09-14 (PR #20) |
 | 11 | Chat and personas | done 2026-09-14 (PR #21) |
 | 12 | Leaderboard | done 2026-09-14 (PR #22) |
-| 13 | Observability | done 2026-09-14 (branch phase-13-observability, PR pending) |
-| 14 | CI/CD (local dry-run; no server yet) | |
+| 13 | Observability | done 2026-09-14 (PR #23) |
+| 14 | CI/CD (local dry-run; no server yet) | done 2026-09-14 (branch phase-14-cicd-dry-run, PR pending) |
 | 15 | Production deployment (deferred until local complete) | |
 | 16 | Scale and polish | |
 
@@ -1225,6 +1225,80 @@ correctly (unique `base_url` per test, or before/after baseline diffing) --
 added a one-line comment on `FakeLLMClient.base_url` stating this
 explicitly, so a future test doesn't accidentally assert an absolute
 value there.
+
+## Phase 14 — done 2026-09-14 (branch phase-14-cicd-dry-run)
+
+Self-planned. DECISIONS.md §1: "the deploy workflows are written and
+dry-run locally" -- no formal spec, so scoped by reading what this
+project's own prior phases had already said about Phase 14 rather than
+guessing: `docs/deployment/production.md`/`staging.md` (written earlier,
+already fully botpit-specific) both explicitly named "CI/CD automation
+for the deploy itself" as "Phase 14's job," and
+`docs/development/ci-cd-and-docker.md` (Phase 9.7) had already found and
+deliberately deferred two template-org leftovers to this exact phase.
+
+- **A real, previously invisible CI failure, found by checking rather
+  than assuming a green `gh pr checks` meant everything was healthy**:
+  `.github/workflows/deploy.yml` (FastAPI Cloud deploy) triggers on
+  `push: branches: [master]` -- which never appears in `gh pr checks`
+  (that only shows a PR's own status checks, not workflows a *merge*
+  itself triggers). It had failed on **every single push to master since
+  this repo's first one** (`gh run list --workflow=deploy.yml`: ten-plus
+  consecutive failures). Root cause: `bun run --filter frontend build`,
+  but the actual workspace package has been `botpit-frontend` since the
+  Phase 9.5 rebrand -- a real bug, not a missing-secret failure. Even
+  fixed, it would still fail at the final "Deploy to FastAPI Cloud" step
+  (no `FASTAPI_CLOUD_TOKEN` exists -- correct, per DECISIONS §1, no server
+  yet). Fixed the real bug, and changed the trigger to `workflow_dispatch`
+  -- matching `deploy-docker-compose.yml`'s own already-correct pattern
+  for "this needs real infra to actually run" -- so it stops failing
+  loudly for a deploy nobody is asking it to attempt.
+- **The actual "dry-run locally" work, done for real rather than trusted
+  on paper**: `docker compose -f compose.yml -f compose.deploy.yml
+  config` (the deploy overlay parses/interpolates cleanly with a
+  placeholder `DOMAIN`) and `build` (clean) against the real
+  `compose.deploy.yml`; then the "prepare database" step -- run directly
+  against a fresh throwaway Postgres with `FASTAPI_ENV=production` and
+  real (non-`"changethis"`) secrets, exactly matching what a first real
+  deploy would do -- full migration chain applies cleanly from empty,
+  superuser seeds correctly. `Settings._check_default_secret` correctly
+  *refused* to start on the first attempt (dev-placeholder secrets under
+  production-mode settings) -- confirmed that guard actually works, not a
+  bug to route around. Not dry-runnable, and not a gap: Traefik's real
+  HTTPS/ACME cert issuance needs a real domain with real DNS pointed at a
+  real reachable host, by construction -- waits for Phase 15 along with
+  the host itself.
+- **Two template-org leftovers, explicitly named as deferred-to-Phase-14
+  in Phase 9.7's own write-up, adapted**: `deploy.yml`'s and
+  `deploy-docker-compose.yml`'s `if: github.repository !=
+  'fastapi/full-stack-fastapi-template'` (always true for this repo,
+  permanently) and `zizmor.yml`'s `advanced-security: ${{
+  github.repository_owner == 'fastapi' }}`/`annotations: ${{ ... != ...
+  }}` (always the same two constants) -- replaced the meaningless
+  conditionals with what they always evaluate to for `withrvr/botpit`,
+  removing dead template cruft.
+- **Found, deliberately left alone**: `issue-manager.yml`,
+  `bump-pre-commit-hooks.yml`, `add-to-project.yml` all gate on
+  `github.repository_owner == 'fastapi'` too, but these are genuinely
+  fastapi-org-specific automation (their own bot account, their own
+  GitHub Project board) with no equivalent for a personal repo -- correctly
+  inert, not broken, matching the Phase 9.5/9.6 precedent of leaving these
+  three (plus `prepare-release.yml`)'s actual logic untouched. Confirmed by
+  checking their run history, not assumed: they show as skipped, never as
+  failed.
+- **Docs**: fixed a stale `DECISIONS.md` §1 cross-reference
+  (`docs/deployment.md`, a file that never existed) to the real path,
+  `docs/deployment/` (already existed, already thorough -- `staging.md`
+  and `production.md` were written well before this phase and needed no
+  new file, just their own "Phase 14's job"/"not built yet" notes updated
+  to reflect what actually shipped).
+
+No code or tests changed this phase -- CI/CD workflow YAML and docs only.
+
+Full gate: `prek run --all-files` clean (including `zizmor`, the GitHub
+Actions security linter, against every edited workflow file); the deploy
+dry-run steps above verified directly, outside prek, against a real
+throwaway Postgres and the real Docker build.
 
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 

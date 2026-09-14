@@ -72,5 +72,8 @@ Genuinely undecided, not a stub — stated plainly rather than invented:
 - Whether staging and production ever get separate LLM tiers (e.g.,
   staging on CPU only, production with an on-demand GPU pod) or share the
   same plan.
-- CI/CD automation for the deploy itself (Phase 14's job — today's compose
-  commands above are run by hand).
+- ~~CI/CD automation for the deploy itself~~ -- done as of Phase 14:
+  `.github/workflows/deploy-docker-compose.yml` already encodes the
+  compose commands above; see `docs/deployment/staging.md`'s "Phase 14
+  status" section for what was actually dry-run verified. Still true that
+  nothing has deployed for real yet -- there is no host, so nothing can.
