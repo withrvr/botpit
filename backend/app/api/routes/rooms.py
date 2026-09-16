@@ -211,12 +211,12 @@ async def join_room(
     except RoomNotWaitingError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except RoomFullError as exc:
-        status = await queue.snapshot(f"room:{exc.room_id}", str(user.id))
+        queue_status = await queue.snapshot(f"room:{exc.room_id}", str(user.id))
         return JSONResponse(
             {
                 "detail": str(exc),
                 "room_id": str(exc.room_id),
-                "queue": status.model_dump(),
+                "queue": queue_status.model_dump(),
             },
             status_code=409,
         )
@@ -333,10 +333,10 @@ async def room_queue(
             str(user.id),
         )
     )
-    status = await queue.snapshot(key, member)
-    if status.position is None and not status.offered:
+    queue_status = await queue.snapshot(key, member)
+    if queue_status.position is None and not queue_status.offered:
         raise HTTPException(status_code=404, detail="not queued")
-    return status
+    return queue_status
 
 
 # -- live play (Phase 8: the minimal API a human plays through) -------------

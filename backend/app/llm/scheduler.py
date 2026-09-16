@@ -50,40 +50,67 @@ class ModelAffinityScheduler:
 
     async def acquire(self, model: str) -> None:
         """Blocks (briefly, boundedly) until ``model`` may make its call."""
-        async with self._lock:
-            if model in self._in_flight or len(self._in_flight) < self._max_loaded:
-                self._in_flight[model] = self._in_flight.get(model, 0) + 1
+        loop = asyncio.get_running_loop()
+        deadline: float | None = None
+        while True:
+            async with self._lock:
+                if model in self._in_flight or len(self._in_flight) < self._max_loaded:
+                    self._in_flight[model] = self._in_flight.get(model, 0) + 1
+                    return
+                event = asyncio.Event()
+                self._waiters[model].append(event)
+
+            if deadline is None:
+                deadline = loop.time() + self._max_wait_s
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                async with self._lock:
+                    self._forget_waiter(model, event)
+                    self._force_admit(model)
                 return
-            event = asyncio.Event()
-            self._waiters[model].append(event)
 
-        try:
-            await asyncio.wait_for(event.wait(), timeout=self._max_wait_s)
-        except TimeoutError:
-            log.info(
-                "model affinity scheduler: forced admit for %r after "
-                "%.1fs wait -- the active model set stayed full",
-                model,
-                self._max_wait_s,
-            )
-        finally:
-            waiters = self._waiters.get(model)
-            if waiters and event in waiters:
-                waiters.remove(event)
+            try:
+                await asyncio.wait_for(event.wait(), timeout=remaining)
+            except TimeoutError:
+                async with self._lock:
+                    self._forget_waiter(model, event)
+                    self._force_admit(model)
+                return
+            # Woken because a slot actually freed (release() only wakes on
+            # that) -- loop back and re-check under the lock rather than
+            # blindly admitting: another waiter for a *different* model
+            # could already have taken it in the meantime.
+            async with self._lock:
+                self._forget_waiter(model, event)
 
-        async with self._lock:
-            self._in_flight[model] = self._in_flight.get(model, 0) + 1
+    def _forget_waiter(self, model: str, event: asyncio.Event) -> None:
+        waiters = self._waiters.get(model)
+        if waiters and event in waiters:
+            waiters.remove(event)
+
+    def _force_admit(self, model: str) -> None:
+        self._in_flight[model] = self._in_flight.get(model, 0) + 1
+        log.info(
+            "model affinity scheduler: forced admit for %r after "
+            "%.1fs wait -- the active model set stayed full",
+            model,
+            self._max_wait_s,
+        )
 
     async def release(self, model: str) -> None:
         async with self._lock:
             count = self._in_flight.get(model, 0) - 1
             if count > 0:
                 self._in_flight[model] = count
-            else:
-                self._in_flight.pop(model, None)
-            # A slot may now be free: wake exactly one waiter (of any
-            # model waiting) so it can re-check, rather than a thundering
-            # herd of every waiter re-checking at once.
+                return
+            # The model dropped out of the active set entirely -- a slot is
+            # now actually free, unlike a call to a model that still has
+            # other in-flight calls (count > 0 above): waking a waiter then
+            # would let it self-admit into a set that never shrank, pushing
+            # the active set past max_loaded. Wake exactly one waiter (of
+            # any model waiting), not every one, to avoid a thundering herd
+            # all re-checking for the one slot that opened.
+            self._in_flight.pop(model, None)
             for waiters in self._waiters.values():
                 if waiters:
                     waiters.pop(0).set()

@@ -26,7 +26,11 @@ class _FakeInner:
         self.calls.append(req.model)
         await self.release_event.wait()
         return CompletionResult(
-            text="{}", model=req.model, latency_ms=1, prompt_tokens=1, completion_tokens=1
+            text="{}",
+            model=req.model,
+            latency_ms=1,
+            prompt_tokens=1,
+            completion_tokens=1,
         )
 
     async def aclose(self) -> None:
@@ -34,7 +38,9 @@ class _FakeInner:
 
 
 def _req(model: str) -> CompletionRequest:
-    return CompletionRequest(model=model, messages=(Message(role="user", content="hi"),))
+    return CompletionRequest(
+        model=model, messages=(Message(role="user", content="hi"),)
+    )
 
 
 async def test_scheduled_client_delays_a_cold_model_until_a_slot_frees() -> None:

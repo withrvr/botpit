@@ -487,44 +487,39 @@ class RoomService:
             return None
         return next(s for s in self.seats(room_id) if s.seat == seat_number)
 
-    async def _offer_seat_to_next_queued(
-        self, room_id: uuid.UUID, seat_number: int
-    ) -> None:
-        """Offers a just-freed seat to whoever's next in this room's own
-        queue, if anyone is waiting. Marks the seat `"offered"` --
-        excluded from `_claim_open_seat`'s "any open seat" fallback, so a
-        fresh joiner can never grab it out from under the person it was
-        actually offered to. `JoinQueue`'s own offer/accept/TTL
-        bookkeeping stays the sole source of truth for whether that
-        specific offer is still live; this DB flag only protects the seat
-        from *other* callers in the meantime."""
-        offer = await self.queue.offer_next(f"room:{room_id}", seat_number)
-        if offer is None:
-            return
-        seat = next((s for s in self.seats(room_id) if s.seat == seat_number), None)
-        if seat is None:
-            return
-        seat.status = "offered"
+    async def _vacate_seat(self, room_id: uuid.UUID, seat: RoomSeat) -> None:
+        """Frees ``seat`` and, in one DB write, sets whichever status
+        actually applies: `"offered"` if this room's queue had someone
+        waiting (`queue.offer_next` already popped them and created their
+        live offer), `"open"` if nobody was. Checking the queue *before*
+        writing any status -- rather than writing `"open"` first and only
+        afterward re-marking it `"offered"`, as an earlier version of this
+        did -- closes a real window where a concurrent, non-queued
+        `join_by_code` could win the seat via `_claim_open_seat`'s "any
+        open seat" fallback out from under the very queue this feature
+        exists to make fair. `JoinQueue`'s own offer/accept/TTL bookkeeping
+        stays the sole source of truth for whether a specific offer is
+        still live; this DB status only protects the seat from *other*
+        callers in the meantime."""
+        offer = await self.queue.offer_next(f"room:{room_id}", seat.seat)
+        seat.status = "offered" if offer is not None else "open"
+        seat.user_id = None
         self.session.add(seat)
         self.session.commit()
 
     async def _reclaim_expired_offers(self, room_id: uuid.UUID) -> None:
         """Sweeps this room's queue for offers that expired unaccepted:
-        each reclaimed seat goes back to `"open"`, then straight back out
-        as a fresh offer to whoever's now at the head of the line (if
-        anyone is) -- a seat with an unresponsive offeree must not sit
-        `"offered"` forever, nor be silently handed to a random fresh
-        joiner ahead of the next person actually waiting for it."""
+        each reclaimed seat is freed via `_vacate_seat`, which re-offers it
+        to whoever's now at the head of the line (if anyone is) -- a seat
+        with an unresponsive offeree must not sit `"offered"` forever, nor
+        be silently handed to a random fresh joiner ahead of the next
+        person actually waiting for it."""
         scope = f"room:{room_id}"
         for seat_number in await self.queue.sweep(scope):
             seat = next((s for s in self.seats(room_id) if s.seat == seat_number), None)
             if seat is None or seat.status != "offered":
                 continue  # already changed underfoot; nothing to reclaim
-            seat.status = "open"
-            seat.user_id = None
-            self.session.add(seat)
-            self.session.commit()
-            await self._offer_seat_to_next_queued(room_id, seat_number)
+            await self._vacate_seat(room_id, seat)
 
     async def leave(self, user: User, room_id: uuid.UUID) -> None:
         room = self.get(room_id)
@@ -540,23 +535,27 @@ class RoomService:
         )
         if seat is None:
             return
-        seat.status = "open"
-        seat.user_id = None
-        self.session.add(seat)
-        self.session.commit()
-        await self._offer_seat_to_next_queued(room_id, seat.seat)
+        await self._vacate_seat(room_id, seat)
 
     # -- start / stop -------------------------------------------------------
 
     async def force_start(self, user: User, room_id: uuid.UUID) -> Room:
         del user  # authorised by the caller (route); nothing more to check here
-        # Staged, not committed: if `start()` below raises (room full some
-        # other way, capacity exceeded, ...), these human seats must not be
-        # left permanently converted to agent seats with the room stuck
-        # "waiting". `start()`'s own `self.seats(room_id)` query autoflushes
-        # this session's pending changes first, so it still sees the backfill;
-        # everything commits together in `start()`'s single final commit, or
-        # none of it does if `start()` raises and the session later rolls back.
+        # Committed immediately, not staged alongside `start()`'s own final
+        # commit: `start()` can now (Phase 16) *enqueue and return* on the
+        # global capacity cap instead of only ever raising outright, and
+        # `_promote_next_queued_room` later retries that exact room from a
+        # completely different session. An uncommitted backfill living only
+        # in this session's pending changes would be invisible to that
+        # retry -- its own fresh read of the seats would still see the
+        # original open human seats, fail the same "not all filled" check,
+        # and get silently swallowed by that retry's own exception
+        # suppression, permanently orphaning the room in the global queue
+        # with no further signal to anyone. Committing here means a later
+        # capacity-queue enqueue (or any other `start()` failure) leaves the
+        # backfill in place rather than losing it -- a moderator/promotion
+        # retry then just needs one more `start()` call to succeed, instead
+        # of never being able to succeed at all.
         for seat in self.seats(room_id):
             # `!= "filled"`, not `== "open"`: also converts a seat mid-offer
             # (see `start()`'s matching comment) -- force-starting means
@@ -571,6 +570,7 @@ class RoomService:
                 seat.user_id = None
                 seat.invited_user_id = None
                 self.session.add(seat)
+        self.session.commit()
         return await self.start(room_id)
 
     async def start(self, room_id: uuid.UUID) -> Room:
@@ -750,10 +750,23 @@ class RoomService:
         temp_service = RoomService(
             session, self.runner, self.queue, self.registry, self.bus
         )
-        with contextlib.suppress(
-            RoomNotWaitingError, RoomFullError, CapacityExceededError
-        ):
+        try:
             await temp_service.start(uuid.UUID(next_room_id))
+        except RoomNotWaitingError, RoomFullError, CapacityExceededError:
+            # Expected when the suggestion was stale (see the docstring
+            # above) -- but also what a room stuck with an unfilled seat
+            # (e.g. an interrupted `force_start`) looks like from here, and
+            # that case never resolves itself: it stays at the head of the
+            # global queue and this same suppressed failure repeats every
+            # time a slot frees, forever. Logged (not re-raised -- this is
+            # still best-effort) so a room that's actually stuck is
+            # observable instead of silently retried forever.
+            log.info(
+                "promotion of globally-queued room %s did not start it "
+                "(stale suggestion, or the room itself is not actually "
+                "startable right now)",
+                next_room_id,
+            )
 
     async def _archive_game(self, session: Session, room: Room, outcome: str) -> None:
         """Copies this game's event log from the live ``EventBus`` into

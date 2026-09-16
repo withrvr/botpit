@@ -788,3 +788,54 @@ async def test_finish_room_promotes_the_next_globally_queued_room(
         settings_store.set_value(
             db, "max_concurrent_games", settings.MAX_CONCURRENT_GAMES, None
         )
+
+
+async def test_force_start_backfill_survives_a_capacity_queue_rollback(
+    db: Session, service: RoomService, runner: GameRunner
+) -> None:
+    """`force_start`'s human->agent seat backfill must survive `start()`
+    hitting the global capacity cap: `start()` now (Phase 16) enqueues and
+    rolls back on `CapacityExceededError` instead of only ever raising
+    outright, and `_promote_next_queued_room` later retries this exact room
+    from a completely different session. If the backfill were only staged
+    (not committed) on this session, that retry's own fresh read of the
+    seats would still see the original open human seats, fail the same
+    "not all filled" check `start()` itself enforces, and get silently
+    swallowed -- permanently orphaning the room in the global queue with no
+    way to ever succeed."""
+    settings_store.set_value(db, "max_concurrent_games", 1, None)
+    room_b = None
+    try:
+        creator = create_random_user(db)
+        room_a = await service.create(creator, _two_agent())
+        room_b = await service.create(creator, _two_human())  # unfilled human seats
+        room_a.status = "in_progress"
+        db.add(room_a)
+        db.commit()
+
+        with pytest.raises(CapacityExceededError):
+            await service.force_start(creator, room_b.id)
+
+        # The backfill committed despite `start()`'s rollback -- not staged
+        # and lost with it.
+        db.expire_all()
+        assert all(
+            s.kind == "agent" and s.status == "filled" for s in service.seats(room_b.id)
+        )
+        assert await service.queue.position("global", str(room_b.id)) == 1
+
+        await service._finish_room(str(room_a.id), "finished")
+        db.expire_all()
+
+        for _ in range(200):
+            if service.get(room_b.id).status == "in_progress":
+                break
+            await asyncio.sleep(0.01)
+        assert service.get(room_b.id).status == "in_progress"
+        assert runner.get(str(room_b.id)) is not None
+    finally:
+        if room_b is not None:
+            await service.stop(room_b.id, "test cleanup")
+        settings_store.set_value(
+            db, "max_concurrent_games", settings.MAX_CONCURRENT_GAMES, None
+        )

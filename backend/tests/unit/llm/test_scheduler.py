@@ -67,6 +67,31 @@ async def test_release_drops_a_model_from_the_active_set_at_zero_in_flight() -> 
     assert sched.snapshot() == {}
 
 
+async def test_releasing_one_of_several_in_flight_calls_does_not_wake_a_waiter() -> (
+    None
+):
+    """A model with more than one concurrent call still occupies its one
+    active-set slot after *one* of those calls finishes -- releasing it
+    must not wake a different model's waiter, or the active set grows past
+    max_loaded (the exact invariant this scheduler exists to hold)."""
+    sched = ModelAffinityScheduler(max_loaded=1, max_wait_s=5.0)
+    await sched.acquire("a")
+    await sched.acquire("a")  # two in-flight calls to "a"
+
+    task_b = asyncio.create_task(sched.acquire("b"))
+    await asyncio.sleep(0.05)
+    assert not task_b.done()
+
+    await sched.release("a")  # only one of a's two calls finished
+    await asyncio.sleep(0.05)
+    assert not task_b.done(), "b must still wait -- a still holds the one slot"
+    assert sched.snapshot() == {"a": 1}
+
+    await sched.release("a")  # now a's active-set slot actually frees
+    await asyncio.wait_for(task_b, timeout=1.0)
+    assert sched.snapshot() == {"b": 1}
+
+
 async def test_three_models_at_max_loaded_two_forces_a_wait_not_a_deadlock() -> None:
     """The scenario DECISIONS.md §13 actually describes: three concurrent
     tables wanting three different models against a backend that can only

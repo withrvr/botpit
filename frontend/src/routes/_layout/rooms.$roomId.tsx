@@ -188,7 +188,11 @@ function RoomDetail() {
                 </Button>
               </div>
               {awaitingSlot ? (
-                <div className="flex items-center gap-2 text-sm">
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center gap-2 text-sm"
+                >
                   <Badge variant="outline">Waiting for a game slot</Badge>
                   <span className="text-muted-foreground">
                     Position {globalQueueQuery.data?.data.position ?? "…"} of{" "}

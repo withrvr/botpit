@@ -107,7 +107,11 @@ export function JoinByCode() {
       </form>
 
       {queued ? (
-        <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3 text-sm">
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3 text-sm"
+        >
           {status?.offered ? (
             <>
               <div className="flex items-center gap-2">
