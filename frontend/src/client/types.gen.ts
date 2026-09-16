@@ -420,6 +420,32 @@ export type PrivateUserCreate = {
 };
 
 /**
+ * QueueStatus
+ */
+export type QueueStatus = {
+    /**
+     * Position
+     */
+    position: number | null;
+    /**
+     * Length
+     */
+    length: number;
+    /**
+     * Eta Seconds
+     */
+    eta_seconds: number | null;
+    /**
+     * Offered
+     */
+    offered?: boolean;
+    /**
+     * Offer Expires In Seconds
+     */
+    offer_expires_in_seconds?: number | null;
+};
+
+/**
  * RoleAssignment
  */
 export type RoleAssignment = {
@@ -2086,7 +2112,12 @@ export type roomsRoomQueueData = {
          */
         room_id: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Scope
+         */
+        scope?: 'seat' | 'global';
+    };
     url: '/api/v1/rooms/{room_id}/queue';
 };
 
@@ -2101,12 +2132,12 @@ export type roomsRoomQueueError = roomsRoomQueueErrors[keyof roomsRoomQueueError
 
 export type roomsRoomQueueResponses = {
     /**
-     * Response Rooms-Room Queue
-     *
      * Successful Response
      */
-    200: unknown;
+    200: QueueStatus;
 };
+
+export type roomsRoomQueueResponse = roomsRoomQueueResponses[keyof roomsRoomQueueResponses];
 
 export type roomsRoomViewData = {
     body?: never;

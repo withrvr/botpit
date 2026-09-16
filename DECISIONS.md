@@ -134,14 +134,19 @@ The event log is the source of truth; finished games replay from it.
 SQLAlchemy 2.0 async + Alembic, one models module for SQLite (dev) and
 Postgres (later). Redis is never the source of truth for game state.
 
-## 13. Model-swap-aware scheduling, RESOLVED 2026-09-12 (flagged)
+## 13. Model-swap-aware scheduling, RESOLVED 2026-09-12, built Phase 16
 
 Loading a model costs seconds; on a 6 GB card at most two 4B-class models
 fit at once and an 8B model sits alone. The turn scheduler treats model
 identity as a resource: group consecutive AI turns by model where turn
 order allows, prefer tables that share a model, and surface swap counts in
 metrics. Research (`docs/local-model-setup.md` §2.3) confirms keep-alive
-tuning does not remove the swap cost, it only delays unloads.
+tuning does not remove the swap cost, it only delays unloads. Built as
+`app.llm.scheduler.ModelAffinityScheduler` -- one instance per LLM
+base_url, transparently wrapping every client `ModelRegistry.client_for`
+hands out; see `docs/local-model-setup.md` §2.3 for the full design and
+what remains a heuristic (it tracks in-flight calls, not Ollama's own
+real VRAM residency).
 
 ## 14. Observability, RESOLVED 2026-09-12
 

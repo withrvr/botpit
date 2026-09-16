@@ -94,6 +94,16 @@ class Settings(BaseSettings):
     # Off by default so CI, tests and a clone without Ollama still serve; rooms
     # refuse to seat an AI player while /health/llm is degraded (Phase 7).
     LLM_HEALTH_REQUIRED_AT_STARTUP: bool = False
+    # Model-affinity turn scheduling (Phase 16, DECISIONS.md §13): how many
+    # distinct models the backend behind one base_url can hold loaded at
+    # once without evicting -- matches `OLLAMA_MAX_LOADED_MODELS` on the
+    # Ollama server side (docs/local-model-setup.md §2.3's recommended
+    # value is 2 for a 6 GB card). A request for a model outside that set
+    # waits up to LLM_SCHEDULER_MAX_WAIT_SECONDS for a slot to free up
+    # before being admitted anyway -- bounded, so a turn's own deadline is
+    # never blocked forever by scheduling.
+    LLM_MAX_LOADED_MODELS: int = 2
+    LLM_SCHEDULER_MAX_WAIT_SECONDS: float = 5.0
 
     @field_validator("LLM_MODELS", mode="before")
     @classmethod

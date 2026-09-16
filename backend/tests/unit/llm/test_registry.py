@@ -43,9 +43,9 @@ async def test_one_http_client_per_base_url(settings: Settings) -> None:
         },
     )
     a, b, c = (reg.client_for(m) for m in ("a:1b", "b:1b", "c:1b"))
-    assert isinstance(a, OllamaNativeAdapter)
-    assert isinstance(b, OllamaNativeAdapter)
-    assert isinstance(c, OpenAICompatAdapter)
+    assert isinstance(a.inner, OllamaNativeAdapter)
+    assert isinstance(b.inner, OllamaNativeAdapter)
+    assert isinstance(c.inner, OpenAICompatAdapter)
     assert a.client is b.client
     assert a.client is not c.client
     assert a.num_ctx == settings.LLM_NUM_CTX
@@ -53,6 +53,9 @@ async def test_one_http_client_per_base_url(settings: Settings) -> None:
     assert c.base_url == "http://llm-c:8080/v1"
     assert reg.config_for("c:1b").num_ctx == 1
     assert reg.client_for("a:1b") is a
+
+    assert a._scheduler is b._scheduler  # same base_url, shared affinity scheduler
+    assert a._scheduler is not c._scheduler
 
     await reg.aclose()
     assert a.client.is_closed

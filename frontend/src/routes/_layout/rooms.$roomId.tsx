@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute } from "@tanstack/react-router"
-import { useEffect } from "react"
+import { AxiosError } from "axios"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { RoomsService } from "@/client"
@@ -54,12 +55,46 @@ function RoomDetail() {
     }
   }, [live.seatsVersion, queryClient, roomId])
 
+  const [awaitingSlot, setAwaitingSlot] = useState(false)
+
   const startMutation = useMutation({
     mutationFn: () => RoomsService.startRoom({ path: { room_id: roomId } }),
-    onError: handleError.bind(showErrorToast),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["rooms", roomId] }),
+    onError: (err) => {
+      // A 429 here (`CapacityExceededError`, app/rooms/service.py) means
+      // this room got enqueued on the global concurrent-game cap rather
+      // than refused outright -- show the wait, don't toast an error.
+      if (err instanceof AxiosError && err.response?.status === 429) {
+        setAwaitingSlot(true)
+        return
+      }
+      handleError.call(showErrorToast, err)
+    },
+    onSuccess: () => {
+      setAwaitingSlot(false)
+      queryClient.invalidateQueries({ queryKey: ["rooms", roomId] })
+    },
   })
+
+  const globalQueueQuery = useQuery({
+    queryKey: ["room-queue-global", roomId],
+    queryFn: () =>
+      RoomsService.roomQueue({
+        path: { room_id: roomId },
+        query: { scope: "global" },
+      }),
+    enabled: awaitingSlot,
+    refetchInterval: 5000,
+    retry: false,
+  })
+
+  // The room itself flips to "in_progress" (via WS, `live.roomStatus`) once
+  // `_promote_next_queued_room` actually starts it -- that is the real
+  // signal this wait is over, not a client-side guess.
+  useEffect(() => {
+    if (awaitingSlot && live.roomStatus && live.roomStatus !== "waiting") {
+      setAwaitingSlot(false)
+    }
+  }, [awaitingSlot, live.roomStatus])
 
   const forceStartMutation = useMutation({
     mutationFn: () =>
@@ -73,6 +108,13 @@ function RoomDetail() {
     mutationFn: (move: Record<string, unknown>) =>
       RoomsService.submitMove({ path: { room_id: roomId }, body: { move } }),
     onError: handleError.bind(showErrorToast),
+  })
+
+  const leaveMutation = useMutation({
+    mutationFn: () => RoomsService.leaveRoom({ path: { room_id: roomId } }),
+    onError: handleError.bind(showErrorToast),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["rooms", roomId] }),
   })
 
   if (roomQuery.isLoading || !room) {
@@ -115,24 +157,50 @@ function RoomDetail() {
                 {seat.persona ? (
                   <Badge variant="outline">{seat.persona}</Badge>
                 ) : null}
+                {seat.user_id === currentUser?.id ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => leaveMutation.mutate()}
+                    disabled={leaveMutation.isPending}
+                  >
+                    Leave seat
+                  </Button>
+                ) : null}
               </div>
             ))}
           </div>
           {isPrivileged ? (
-            <div className="flex gap-2">
-              <Button
-                onClick={() => startMutation.mutate()}
-                disabled={startMutation.isPending}
-              >
-                Start
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => forceStartMutation.mutate()}
-                disabled={forceStartMutation.isPending}
-              >
-                Force start (fill open seats with AI)
-              </Button>
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => startMutation.mutate()}
+                  disabled={startMutation.isPending || awaitingSlot}
+                >
+                  Start
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => forceStartMutation.mutate()}
+                  disabled={forceStartMutation.isPending}
+                >
+                  Force start (fill open seats with AI)
+                </Button>
+              </div>
+              {awaitingSlot ? (
+                <div className="flex items-center gap-2 text-sm">
+                  <Badge variant="outline">Waiting for a game slot</Badge>
+                  <span className="text-muted-foreground">
+                    Position {globalQueueQuery.data?.data.position ?? "…"} of{" "}
+                    {globalQueueQuery.data?.data.length ?? "…"} rooms in line
+                    {globalQueueQuery.data?.data.eta_seconds != null
+                      ? ` — ETA ~${Math.ceil(
+                          globalQueueQuery.data.data.eta_seconds / 60,
+                        )} min`
+                      : ""}
+                  </span>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>

@@ -106,13 +106,32 @@ places wait one typical game each: `max(0, typical - elapsed) + (position - 1) *
 estimate on purpose; refine with a measured median game length once games
 persist durations.
 
-## What Phase 7 rooms wire on top
+## What rooms wire on top
 
 - `POST /rooms` with `rate_limit_from_setting("room_create", ...)`,
   `POST /rooms/{code}/join` with `room_join`; chat via `check_rate_ws`.
 - Global cap: a room may start only if running games < `MAX_CONCURRENT_GAMES`,
-  else the room enqueues on `"global"` and starts on its offer.
+  else the room enqueues on `"global"` and starts on its offer -- `start`
+  itself enqueues (or, at position 1, pops itself off) rather than
+  `create`'s own hard refusal, and `RoomService._finish_room` tries to
+  promote the next globally-queued room once a slot frees.
 - Seat cap: a full room enqueues joiners on `f"room:{id}"`; a leaving human
   triggers `offer_next(scope, seat)`.
-- One sweeper task per process, leader-elected, calling `sweep` for every scope
-  with live offers; `seat_offer` / `queue_update` events on the room stream.
+- **No standalone sweeper task (Phase 7's original plan for this).** Phase 16
+  wired the queue fully but reclaims expired offers opportunistically
+  instead of via a leader-elected background task: `join_by_code` sweeps as
+  a side effect of a caller's own retry, and `GET /{room_id}/queue` sweeps
+  on every poll while a waiting caller's own queue UI is open. Between
+  those two, the realistic paths are covered (either the offeree is still
+  watching, or someone else eventually tries the room again) -- but a
+  room whose only waiter closes their tab, where nobody else ever touches
+  that room's queue, leaves that one offer stale until something does. A
+  real background sweeper would close this fully; not built, since neither
+  path it would add coverage for is the common case.
+- **No `seat_offer` / `queue_update` push events either.** The frontend
+  polls `GET /{room_id}/queue?scope=seat|global` (`QueueStatus`, including
+  `offered`/`offer_expires_in_seconds` for a live seat offer) rather than
+  receiving a push notification over the room's event stream -- simpler,
+  and the room already flips to `"in_progress"` over the existing
+  websocket once a promoted/accepted seat actually starts a game, so the
+  wait itself is the only thing polling covers.

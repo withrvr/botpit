@@ -70,12 +70,42 @@ names from config.
   at once, and the botpit-side turn scheduler grouping consecutive AI turns
   by model where turn order allows.
 
-**Conflict with DECISIONS.md §13 (flag for review once the file is
-available):** if §13 assumes keep-alive tuning alone makes multi-model
-tables cheap, that assumption is wrong on a 6 GB card. The practical rule
-is "at most two 4B-class models resident; an 8B model is alone." The
-scheduler in Phase 16 should treat model identity as a resource, not just
-a label.
+**Resolved -- DECISIONS.md §13 agrees with this, not in conflict with it.**
+The practical rule is "at most two 4B-class models resident; an 8B model
+is alone," matching `OLLAMA_MAX_LOADED_MODELS=2` above.
+
+### 2.3.1 The scheduler, built (Phase 16)
+
+`app.llm.scheduler.ModelAffinityScheduler` -- one instance per LLM
+base_url (created lazily inside `ModelRegistry`, never shared across
+different backends), wrapping every client `ModelRegistry.client_for`
+hands out via a transparent `_ScheduledClient`. Before a real completion
+call is allowed to fire, it must `acquire()` its model: immediate if that
+model already has a call in flight, or if the active set is below
+`LLM_MAX_LOADED_MODELS`; otherwise it waits (up to
+`LLM_SCHEDULER_MAX_WAIT_SECONDS`, then is admitted anyway -- a turn's own
+deadline must never be blocked forever by scheduling). This is exactly
+what "prefer tables that share a model" and "group consecutive AI turns
+by model" mean at the one layer this code can actually act on: which
+already-due call gets to fire next across every room sharing one
+backend, not which seat's turn comes next within one game (that's fixed
+by the game's own rules).
+
+Deliberately a heuristic, not a perfect model of Ollama's real VRAM
+state: "active" here means "has at least one in-flight call," not "Ollama
+still has it loaded under keep_alive." A model with zero in-flight calls
+drops out of the tracked set immediately, even if Ollama itself hasn't
+evicted it yet -- so under bursty traffic the scheduler can still admit a
+third model sooner than ideal. Querying Ollama's own `/api/ps` for ground
+truth would close that gap but costs a real network round trip per
+admission decision; not built, a documented tradeoff.
+
+`botpit_model_swaps_total` (Phase 13's metric) is exactly what would show
+whether this is actually reducing swaps in practice: it fires at real
+dispatch time (after the scheduler admits a call), so comparing its rate
+before/after this phase -- or under different `LLM_MAX_LOADED_MODELS`
+values -- is the intended way to validate the scheduler's real effect
+once real concurrent multi-model traffic exists to measure.
 
 ### 2.4 The API surface botpit will use
 

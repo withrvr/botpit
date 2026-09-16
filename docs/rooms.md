@@ -229,17 +229,22 @@ seen event's own `stream_id` to resume after it. Full detail:
   even the creator) — an admin/spectator view across every seat at once,
   built on top of `/ws`'s privileged feed, is still Phase 10 work in
   progress (DECISIONS §10).
-- **The join queue is read-only in this phase.** `capacity_check` reads
-  `queue.snapshot` for its error payload, and the `/rooms/join` route reads
-  it for a full room's 409 body, but neither `create` nor `join_by_code`
-  ever calls `queue.enqueue`/`offer_next`: nobody actually waits in line
-  yet. `docs/capacity-and-queueing.md`'s "a room may start only if running
-  games < `MAX_CONCURRENT_GAMES`, else it enqueues on `global`" is not
-  implemented as queueing — Phase 7 instead refuses `create` outright
-  (`CapacityExceededError`) once at capacity. Wiring real enqueue-and-offer
-  behavior on top of the now-tested `JoinQueue` primitives is future work.
-- **`leave` does not trigger `offer_next`.** Freeing a seat does not offer
-  it to anyone waiting (nobody is waiting yet, per the point above).
+- **The join queue is fully wired (Phase 16).** `join_by_code` enqueues on
+  `"room:{id}"` when a room is full (`RoomFullError`, 409, with the queue
+  snapshot and the room's own id in the body so a caller who only had the
+  join code can still poll `GET /{room_id}/queue`); `leave` calls
+  `offer_next` on the seat it just freed, and `RoomService._reclaim_expired_offers`
+  sweeps and re-offers any offer whose deadline passed unaccepted.
+  `start` is queue-aware on `"global"` (DECISIONS §2's concurrent-game cap):
+  it enqueues rather than refusing outright unless the room is already at
+  position 1, in which case it pops itself off; `_finish_room` tries to
+  promote the next globally-queued room once a slot frees
+  (`_promote_next_queued_room`, best-effort — `start`'s own advisory-locked
+  check is the real gate against a stale suggestion). `create`'s own
+  capacity check is deliberately unchanged: a room can always be created,
+  only *starting* it queues. `GET /{room_id}/queue?scope=seat|global`
+  reports position/ETA either way, plus `offered`/`offer_expires_in_seconds`
+  for a live seat offer (`QueueStatus`, `app/rooms/queue.py`).
 
 ## `subscription_guard` (`app/rooms/guard.py`)
 

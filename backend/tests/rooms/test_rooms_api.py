@@ -129,7 +129,41 @@ def test_join_full_room_is_409_with_queue_body(
     r = client.post(f"{API}/rooms/join", headers=latecomer, json={"code": code})
     assert r.status_code == 409
     body = r.json()
-    assert set(body["queue"]) == {"position", "length", "eta_seconds"}
+    assert body["room_id"]
+    assert set(body["queue"]) == {
+        "position",
+        "length",
+        "eta_seconds",
+        "offered",
+        "offer_expires_in_seconds",
+    }
+
+
+def test_room_queue_reports_position_then_404s_once_not_queued(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    r = client.post(f"{API}/rooms/", headers=superuser_token_headers, json=_body())
+    room_id = r.json()["id"]
+    code = r.json()["code"]
+    for _ in range(2):
+        headers = _new_user_headers(client)
+        joined = client.post(f"{API}/rooms/join", headers=headers, json={"code": code})
+        assert joined.status_code == 200, joined.text
+
+    latecomer = _new_user_headers(client)
+    joined = client.post(f"{API}/rooms/join", headers=latecomer, json={"code": code})
+    assert joined.status_code == 409
+
+    r = client.get(f"{API}/rooms/{room_id}/queue", headers=latecomer)
+    assert r.status_code == 200, r.text
+    assert r.json()["position"] == 1
+    assert r.json()["offered"] is False
+
+    # A caller with no queue membership at all (never tried to join this
+    # room) gets a plain 404, not a stale/empty status.
+    stranger = _new_user_headers(client)
+    r = client.get(f"{API}/rooms/{room_id}/queue", headers=stranger)
+    assert r.status_code == 404
 
 
 def test_start_needs_creator_or_force_stop(
@@ -184,7 +218,13 @@ def test_capacity_exceeded_is_429_with_queue_body(
 
         r2 = client.post(f"{API}/rooms/", headers=h, json=_body(agent=True))
         assert r2.status_code == 429
-        assert set(r2.json()["queue"]) == {"position", "length", "eta_seconds"}
+        assert set(r2.json()["queue"]) == {
+            "position",
+            "length",
+            "eta_seconds",
+            "offered",
+            "offer_expires_in_seconds",
+        }
     finally:
         if room_id is not None:
             client.post(f"{API}/rooms/{room_id}/stop", headers=h)

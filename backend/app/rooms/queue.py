@@ -27,12 +27,23 @@ log = get_logger("queue")
 
 # KEYS = queue, offers, scores; ARGV = now_ms, ttl_ms, seat, offer key prefix.
 # Returns {user, deadline_ms} or nil when the queue is empty.
+#
+# The offer string key's own PX gets 4x headroom over the ZSET deadline --
+# sweep() is what's supposed to reclaim an expired offer (ZRANGEBYSCORE then
+# GETDEL), and it must always find the key still there to GETDEL. Giving the
+# key the *same* TTL as the ZSET deadline made Redis's own automatic expiry
+# race sweep()'s explicit reclaim for the same millisecond -- when Redis won,
+# GETDEL found nothing and sweep() wrongly assumed some other worker already
+# claimed it, silently dropping the seat instead of reclaiming it. The PX
+# here is just a leak backstop (a crashed process's key still eventually
+# vanishes); sweep() is the real reclaim path and must win the race.
 _OFFER_NEXT = """
 local popped = redis.call('ZPOPMIN', KEYS[1])
 if #popped == 0 then return nil end
 local user = popped[1]
-local deadline = tonumber(ARGV[1]) + tonumber(ARGV[2])
-redis.call('SET', ARGV[4] .. user, ARGV[3], 'NX', 'PX', ARGV[2])
+local ttl = tonumber(ARGV[2])
+local deadline = tonumber(ARGV[1]) + ttl
+redis.call('SET', ARGV[4] .. user, ARGV[3], 'NX', 'PX', ttl * 4)
 redis.call('ZADD', KEYS[2], deadline, user)
 redis.call('HSET', KEYS[3], user, popped[2])
 return {user, deadline}
@@ -60,6 +71,8 @@ class QueueStatus(BaseModel):
     position: int | None
     length: int
     eta_seconds: int | None
+    offered: bool = False
+    offer_expires_in_seconds: int | None = None
 
 
 class JoinQueue:
@@ -132,11 +145,18 @@ class JoinQueue:
         log.info("queue accept key=offer:%s:%s seat=%s", scope, user_id, seat)
         return int(seat)
 
-    async def sweep(self, scope: str, now_ms: int | None = None) -> list[str]:
-        """Requeue users whose offer expired (at their original score); drop repeat no-shows."""
+    async def sweep(self, scope: str, now_ms: int | None = None) -> list[int]:
+        """Reclaims every seat held by an expired offer -- requeuing that
+        user at their original score, or dropping them after
+        ``max_misses``. Returns the *seats* reclaimed (one per expired
+        offer, regardless of whether that offer's user was requeued or
+        dropped): the caller's real question after a sweep is "which
+        seats are free again," not who specifically missed one -- fairness
+        bookkeeping for the *user* side is already fully handled here and
+        needs no further action from the caller."""
         now = _now_ms() if now_ms is None else now_ms
         offers = f"offers:{scope}"
-        requeued: list[str] = []
+        reclaimed: list[int] = []
         expired = cast(
             "list[str]", await self._redis.zrangebyscore(offers, "-inf", now)
         )
@@ -146,6 +166,7 @@ class JoinQueue:
             )
             if seat is None:
                 continue  # accepted (or already swept by another worker) meanwhile
+            reclaimed.append(int(seat))
             score = await self._redis.hget(f"scores:{scope}", user_id)
             misses_key = f"misses:{scope}:{user_id}"
             misses = int(await self._redis.incrby(misses_key, 1))
@@ -159,11 +180,27 @@ class JoinQueue:
             await self._redis.zadd(
                 f"queue:{scope}", {user_id: float(score) if score else now}, nx=True
             )
-            requeued.append(user_id)
             log.info(
                 "queue requeue key=queue:%s user=%s misses=%s", scope, user_id, misses
             )
-        return requeued
+        return reclaimed
+
+    async def pop_next(self, scope: str) -> str | None:
+        """Plain FIFO pop, no offer/TTL/accept semantics -- for a scope
+        where nobody needs to explicitly accept (the caller acts
+        immediately on the popped id, e.g. a room auto-starting once its
+        turn comes up; DECISIONS.md §2's global concurrent-game cap)."""
+        popped = await self._redis.zpopmin(f"queue:{scope}")
+        if not popped:
+            return None
+        member, _score = cast("tuple[str, float]", popped[0])
+        log.info("queue pop key=queue:%s user=%s", scope, member)
+        return str(member)
+
+    async def peek_head(self, scope: str) -> str | None:
+        """Read the head of the queue without removing it."""
+        head = cast("list[str]", await self._redis.zrange(f"queue:{scope}", 0, 0))
+        return head[0] if head else None
 
     @staticmethod
     def eta_seconds(
@@ -182,12 +219,31 @@ class JoinQueue:
         self, scope: str, user_id: str, oldest_started_at: datetime | None = None
     ) -> QueueStatus:
         position = await self.position(scope, user_id)
+        offered = False
+        offer_expires_in_seconds = None
+        if position is None:
+            # Once offered, a user is popped out of `queue:{scope}` (so
+            # `position` above is already None) into a live offer -- the
+            # caller (a polling frontend) still needs to know "your turn
+            # came up, go accept" rather than reading plain silence as
+            # "still waiting" or "gave up." Both reads are non-destructive,
+            # unlike `accept()`/`sweep()`'s GETDEL. The deadline comes from
+            # the `offers` ZSET, not the offer key's own PTTL -- that key's
+            # PX is deliberately 4x the real deadline (see _OFFER_NEXT), so
+            # its PTTL alone would overstate how long the offer is actually
+            # good for.
+            deadline = await self._redis.zscore(f"offers:{scope}", user_id)
+            if deadline is not None:
+                offered = True
+                offer_expires_in_seconds = max(0, int((deadline - _now_ms()) / 1000))
         return QueueStatus(
             position=position,
             length=await self.length(scope),
             eta_seconds=None
             if position is None
             else self.eta_seconds(position, oldest_started_at),
+            offered=offered,
+            offer_expires_in_seconds=offer_expires_in_seconds,
         )
 
     async def _forget(self, scope: str, user_id: str) -> None:
