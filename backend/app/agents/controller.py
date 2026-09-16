@@ -22,11 +22,7 @@ from app.events import (
 )
 from app.games.base import AnyGame, PlayerView, Seat
 from app.llm.client import CompletionRequest, LLMClient, LLMError, Message, with_retries
-from app.metrics import (
-    AGENT_TURN_ERRORS_TOTAL,
-    AGENT_TURN_LATENCY_SECONDS,
-    note_llm_call,
-)
+from app.metrics import AGENT_TURN_ERRORS_TOTAL, AGENT_TURN_LATENCY_SECONDS
 from app.referee.seats import ControllerError, SeatKind, TurnContext
 from app.telemetry import current_event, get_logger
 
@@ -99,7 +95,6 @@ class AgentController:
             )
             call_start = time.perf_counter()
             try:
-                note_llm_call(self.client.base_url, self.model)
                 result = await with_retries(
                     functools.partial(self.client.complete, req)
                 )

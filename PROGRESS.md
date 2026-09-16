@@ -43,9 +43,9 @@ branch; only the phase branch opens a PR into `master`.
 | 11 | Chat and personas | done 2026-09-14 (PR #21) |
 | 12 | Leaderboard | done 2026-09-14 (PR #22) |
 | 13 | Observability | done 2026-09-14 (PR #23) |
-| 14 | CI/CD (local dry-run; no server yet) | done 2026-09-14 (branch phase-14-cicd-dry-run, PR pending) |
+| 14 | CI/CD (local dry-run; no server yet) | done 2026-09-14 (PR #24) |
 | 15 | Production deployment (deferred until local complete) | |
-| 16 | Scale and polish | |
+| 16 | Scale and polish | done 2026-09-16 (branch phase-16-scale-and-polish, PR pending) |
 
 ## Phase 7 — done 2026-09-13 (branch phase-7-rooms)
 
@@ -1299,6 +1299,171 @@ Full gate: `prek run --all-files` clean (including `zizmor`, the GitHub
 Actions security linter, against every edited workflow file); the deploy
 dry-run steps above verified directly, outside prek, against a real
 throwaway Postgres and the real Docker build.
+
+## Phase 16 — done 2026-09-16 (branch phase-16-scale-and-polish)
+
+Phase 15 ("Production deployment") needs a real server/domain purchase --
+not something buildable unattended, so deferred by owner decision; moved
+straight to Phase 16 ("Scale and polish"). Two pieces, both flagged and
+scoped with the owner before building rather than guessed at: the
+model-affinity scheduler `docs/local-model-setup.md` had already named as
+Phase 16's job (DECISIONS §13), and -- found during the "polish pass"
+survey of every phase's own "Left for later" notes -- the join queue's
+seat/room wiring, which `docs/rooms.md` and `docs/capacity-and-queueing.md`
+had both explicitly documented as unbuilt since Phase 7. The join queue's
+real scope turned out larger than first estimated (new response shapes, an
+accept-offer flow, promotion logic, real frontend UI, not backend-only like
+the scheduler) -- re-scoped with the owner mid-flight rather than
+silently expanding; the owner chose the full build, backend and frontend
+both.
+
+### Model-affinity scheduler (DECISIONS §13)
+
+- `app/llm/scheduler.py` (new): `ModelAffinityScheduler` -- one instance per
+  LLM `base_url`, bounded admission control. `acquire(model)` admits
+  immediately if that model already has an in-flight call or the active
+  set is under `LLM_MAX_LOADED_MODELS` (default 2); otherwise waits up to
+  `LLM_SCHEDULER_MAX_WAIT_SECONDS` (default 5.0) before force-admitting
+  anyway, logged. `release(model)` decrements and wakes one waiter.
+  Deliberately a heuristic, not a real VRAM model: "active" means "has an
+  in-flight call," not "Ollama actually has it loaded" (`/api/ps` is never
+  queried) -- documented as such in `docs/local-model-setup.md`'s new
+  §2.3.1, with `botpit_model_swaps_total` (Phase 13) named as the way to
+  empirically check its real-world effect later.
+- `app/llm/registry.py`: `client_for()` now wraps every adapter in a new
+  `_ScheduledClient` (routes `complete()` through
+  `acquire`/`note_llm_call`/`release`) before caching it, one scheduler per
+  `base_url` via `self._schedulers`. `note_llm_call` (Phase 13's swap
+  counter) moved here from `AgentController.decide()`, so the metric
+  reflects real post-scheduling dispatch order rather than raw arrival
+  order.
+- `DECISIONS.md` §13: `"RESOLVED ... (flagged)"` -> `"RESOLVED ...,
+  built Phase 16"`, naming the implementation.
+- Tests: `tests/unit/llm/test_scheduler.py` (6, admission/wait/force-admit/
+  release scenarios matching DECISIONS §13's own worked example) and
+  `tests/unit/llm/test_scheduled_client.py` (2, wrapper-level: a cold model
+  really does wait for a slot, `note_llm_call` fires at real dispatch
+  time). `tests/unit/llm/test_registry.py` updated for the `.inner`
+  indirection and per-`base_url` scheduler sharing.
+
+### Join queue, fully wired (docs/rooms.md, docs/capacity-and-queueing.md)
+
+Backend, both scopes:
+
+- **Room-seat scope** (`f"room:{id}"`): `RoomService.join_by_code` enqueues
+  instead of hard-refusing when a room is full (`RoomFullError`, 409, now
+  carrying `room_id` in the body too -- a caller who only had the join
+  code had no other way to know which room to keep polling).
+  `RoomService.leave` (now `async`) offers the freed seat to whoever's
+  next via `_offer_seat_to_next_queued`, which marks the seat `"offered"`
+  -- a new `RoomSeat.status` value (no migration; already an unconstrained
+  `str`) excluded from `_claim_open_seat`'s "any open seat" fallback so a
+  fresh joiner can't steal a seat that was actually offered to someone
+  specific. `_reclaim_expired_offers` sweeps and re-offers any offer whose
+  deadline passed unaccepted; `join_by_code` re-checks `queue.accept()`
+  immediately after a reclaim runs, since the very common case is the
+  offeree's own retry landing right after their own offer just expired and
+  got re-offered to them again -- a self-healing retry, not a second
+  failure.
+- **Global scope** (`"global"`, DECISIONS §2's concurrent-game cap):
+  `RoomService.start` replaces the old hard-refusing capacity check with
+  queue-aware logic -- enqueues unless already at position 1, in which
+  case it pops itself off and proceeds; `create()`'s own capacity check is
+  deliberately unchanged (still hard-refuses -- a room can always be
+  created, only *starting* it queues). `_finish_room` tries to promote the
+  next globally-queued room once a slot frees (`_promote_next_queued_room`,
+  best-effort, suppressing `RoomNotWaitingError`/`RoomFullError`/
+  `CapacityExceededError` -- it only ever suggests a room; `start`'s own
+  advisory-locked check is the real gate against a stale suggestion).
+- **`app/rooms/queue.py`**: `sweep()`'s return type changed from the
+  requeued user ids to the reclaimed *seat numbers* (the caller's real
+  question after a sweep); added `pop_next`/`peek_head` for the global
+  scope's plain-FIFO needs (no offer/accept/TTL semantics -- the caller
+  acts immediately). `QueueStatus` gained `offered`/
+  `offer_expires_in_seconds`, computed non-destructively in `snapshot()`
+  from the `offers` ZSET deadline (not the offer key's own PTTL -- see the
+  bug below) so a polling caller can tell "still waiting" apart from "your
+  turn came up, go accept."
+- **`app/api/routes/rooms.py`**: `GET /{room_id}/queue` gained a
+  `scope=seat|global` query param (seat: is *this user* waiting for a
+  seat; global: is *this room* waiting for a slot) and a
+  `response_model=QueueStatus`; its 404 condition now also lets a live
+  offer through (previously any user with no active *queue* position
+  404'd, even one sitting on a live offer). It also sweeps this room's
+  seat-scope queue on every poll, opportunistically reclaiming any offer
+  whose deadline just passed -- see "no standalone sweeper task" below.
+
+Two real bugs, both caught by the tests written for this feature rather
+than assumed correct:
+
+- **A genuine pre-existing race in `JoinQueue`, never caught before
+  because no test exercised a real wall-clock TTL.** `_OFFER_NEXT`'s Redis
+  string key (`offer:{scope}:{user}`) had its own `SET NX PX` expiry set
+  to the *exact same* deadline the `offers` ZSET tracks for `sweep()`'s
+  explicit reclaim -- under a real wait (as opposed to every existing
+  `JoinQueue` test's synthetic `now_ms` override), Redis's own automatic
+  key expiry usually fires before or alongside `sweep()`'s own
+  `GETDEL`, which then finds nothing and silently assumes some other
+  worker already claimed it -- never reclaiming the seat. Fixed by giving
+  the key's own `PX` 4x headroom over the ZSET deadline: it's now just a
+  leak backstop for a crashed process, and `sweep()`'s explicit reclaim
+  always wins the race it's supposed to win.
+- **`RoomService.start` left its Postgres advisory lock
+  (`pg_advisory_xact_lock`) held after raising `CapacityExceededError` or
+  the post-lock `RoomNotWaitingError`** -- xact-scoped locks only release
+  on commit/rollback, and neither exception path did either, so the lock
+  stayed held until whatever session owned it eventually closed. Harmless
+  within one short-lived request, but `_promote_next_queued_room` opens
+  its *own* session from inside `_finish_room` -- a caller that catches
+  the first exception and keeps working on the same session (exactly what
+  `test_finish_room_promotes_the_next_globally_queued_room` does, and
+  what triggered a genuine ~90s hang under a real `timeout` guard, not
+  just a slow test) deadlocks that second session against the lock the
+  first never released. Fixed with an explicit `rollback()` on both
+  exception paths, immediately after the check that decided to raise --
+  nothing written before that point needed keeping (reads and the lock
+  call only).
+
+Frontend:
+
+- `components/Rooms/JoinByCode.tsx`: a 409-with-`room_id` response is
+  shown inline (position, length, ETA) instead of toasted as an error;
+  polls `GET /{room_id}/queue?scope=seat` every 3s while queued. A live
+  offer (`offered: true`) shows "Seat ready" with an "Accept seat" button
+  that just retries the same join call -- `join_by_code`'s `accept()` path
+  handles it. A 404 (dropped after too many missed offers) clears the
+  queued state.
+- `routes/_layout/rooms.$roomId.tsx`: a 429 on Start shows "Waiting for a
+  game slot" with position/ETA (polling `scope=global`) instead of an
+  error toast; clears once the room's own status flips away from
+  `"waiting"` over the existing websocket -- that's the real signal the
+  wait ended, not a client-side guess. Also added a "Leave seat" button --
+  there was no way for a human to leave a seat from the UI at all before
+  this, which meant the accept-offer flow had nothing to demonstrate it
+  end-to-end; a real, if small, product gap found while building this.
+- `frontend/tests/rooms.spec.ts`: new E2E test, three real browser
+  contexts -- two fill a room, a third gets queued (position/ETA visible),
+  the creator leaves, the third's page shows "Seat ready" and accepts into
+  the freed seat. Run against the real Docker stack per this project's
+  standing gate; all 60 E2E tests pass (the other 59 unaffected).
+
+**Left for later, explicitly (not silently):** no standalone
+leader-elected sweeper task, and no `seat_offer`/`queue_update` push
+events -- both were Phase 7's original documented plan for this feature.
+Built instead: opportunistic reclaim (a `join_by_code` retry sweeps as a
+side effect; so does every `GET /queue` poll while a waiting caller's own
+queue UI is open) and REST polling instead of a push transport. Covers
+every realistic path -- the offeree is still watching, or someone else
+eventually retries the room -- but a room whose only waiter closes their
+tab, where nobody else ever touches that room's queue again, leaves that
+one offer stale until something does. `docs/capacity-and-queueing.md`
+documents this bound explicitly rather than claiming the original design
+was built as originally planned.
+
+Full gate: backend suite (`uv run pytest tests`, all green, including new
+tests for the scheduler, the queue wiring, and the two bugs above),
+`prek run --all-files` clean, frontend `bun run build`/`lint` clean, full
+Playwright E2E suite (60/60) against the real Docker stack.
 
 ## Phase 9.7 — done 2026-09-14 (branch phase-9.7-infra-optimization)
 

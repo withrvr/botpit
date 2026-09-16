@@ -358,18 +358,46 @@ class RoomService:
         if already is not None:
             return already
 
-        target = self._claim_open_seat(room.id, user.id)
-        if target is None:
-            raise RoomFullError(f"room {room.id} has no open seat", room_id=room.id)
+        scope = f"room:{room.id}"
+        offered_seat = await self.queue.accept(scope, str(user.id))
+        if offered_seat is None:
+            # A sweep here: an unresponsive offeree from this room's own
+            # queue must never permanently lock a seat `"offered"` -- any
+            # reclaimed seat goes back to `"open"` and is immediately
+            # re-offered to whoever's now at the head. That "whoever" is
+            # very often *this exact caller* (the common case: they missed
+            # their own offer's deadline and are retrying right after) --
+            # so accept() must be re-checked, not just called once before
+            # the sweep ever had a chance to create a fresh offer for them.
+            await self._reclaim_expired_offers(room.id)
+            offered_seat = await self.queue.accept(scope, str(user.id))
+        if offered_seat is not None:
+            target = self._fill_offered_seat(room.id, offered_seat, user.id)
+            if target is not None:
+                await self._publish_seat_filled(room.id, target, user)
+                return target
+            # The queue said this offer was live, but the seat itself
+            # wasn't (still) `"offered"` in the DB -- shouldn't normally
+            # happen since both sides move in lockstep, but fall through
+            # to a fresh join attempt rather than leaving the caller
+            # stuck with an offer Redis already consumed.
 
+        target = self._claim_open_seat(room.id, user.id)
+        if target is not None:
+            await self._publish_seat_filled(room.id, target, user)
+            return target
+
+        await self.queue.enqueue(scope, str(user.id))
+        raise RoomFullError(f"room {room.id} has no open seat", room_id=room.id)
+
+    async def _publish_seat_filled(
+        self, room_id: uuid.UUID, seat: RoomSeat, user: User
+    ) -> None:
         await self.bus.publish(
             make_event(
-                str(room.id),
-                SeatFilled(seat=target.seat, player=str(user.id)),
-                PUBLIC,
+                str(room_id), SeatFilled(seat=seat.seat, player=str(user.id)), PUBLIC
             )
         )
-        return target
 
     def _claim_open_seat(
         self, room_id: uuid.UUID, user_id: uuid.UUID
@@ -433,7 +461,67 @@ class RoomService:
             # lost the race for this seat (or it just changed underfoot); retry
         return None
 
-    def leave(self, user: User, room_id: uuid.UUID) -> None:
+    def _fill_offered_seat(
+        self, room_id: uuid.UUID, seat_number: int, user_id: uuid.UUID
+    ) -> RoomSeat | None:
+        """Claims exactly the seat a live queue offer names -- mirrors
+        `_claim_open_seat`'s atomic UPDATE-with-WHERE pattern, but keyed
+        by seat number and `status == "offered"` rather than "any open
+        seat"; deliberately ignores `invited_user_id` entirely, since a
+        queue offer and a room invite are two independent reservation
+        mechanisms that never need to look at each other's state. Only
+        ever called right after `JoinQueue.accept()` already proved this
+        caller holds the live offer for it."""
+        result = self.session.execute(  # ty: ignore[deprecated]
+            update(RoomSeat)
+            .where(
+                col(RoomSeat.room_id) == room_id,
+                col(RoomSeat.seat) == seat_number,
+                col(RoomSeat.status) == "offered",
+            )
+            .values(status="filled", user_id=user_id, invited_user_id=None)
+        )
+        self.session.commit()
+        rowcount = cast("CursorResult[Any]", result).rowcount
+        if rowcount != 1:
+            return None
+        return next(s for s in self.seats(room_id) if s.seat == seat_number)
+
+    async def _vacate_seat(self, room_id: uuid.UUID, seat: RoomSeat) -> None:
+        """Frees ``seat`` and, in one DB write, sets whichever status
+        actually applies: `"offered"` if this room's queue had someone
+        waiting (`queue.offer_next` already popped them and created their
+        live offer), `"open"` if nobody was. Checking the queue *before*
+        writing any status -- rather than writing `"open"` first and only
+        afterward re-marking it `"offered"`, as an earlier version of this
+        did -- closes a real window where a concurrent, non-queued
+        `join_by_code` could win the seat via `_claim_open_seat`'s "any
+        open seat" fallback out from under the very queue this feature
+        exists to make fair. `JoinQueue`'s own offer/accept/TTL bookkeeping
+        stays the sole source of truth for whether a specific offer is
+        still live; this DB status only protects the seat from *other*
+        callers in the meantime."""
+        offer = await self.queue.offer_next(f"room:{room_id}", seat.seat)
+        seat.status = "offered" if offer is not None else "open"
+        seat.user_id = None
+        self.session.add(seat)
+        self.session.commit()
+
+    async def _reclaim_expired_offers(self, room_id: uuid.UUID) -> None:
+        """Sweeps this room's queue for offers that expired unaccepted:
+        each reclaimed seat is freed via `_vacate_seat`, which re-offers it
+        to whoever's now at the head of the line (if anyone is) -- a seat
+        with an unresponsive offeree must not sit `"offered"` forever, nor
+        be silently handed to a random fresh joiner ahead of the next
+        person actually waiting for it."""
+        scope = f"room:{room_id}"
+        for seat_number in await self.queue.sweep(scope):
+            seat = next((s for s in self.seats(room_id) if s.seat == seat_number), None)
+            if seat is None or seat.status != "offered":
+                continue  # already changed underfoot; nothing to reclaim
+            await self._vacate_seat(room_id, seat)
+
+    async def leave(self, user: User, room_id: uuid.UUID) -> None:
         room = self.get(room_id)
         if room.status != "waiting":
             return
@@ -447,24 +535,34 @@ class RoomService:
         )
         if seat is None:
             return
-        seat.status = "open"
-        seat.user_id = None
-        self.session.add(seat)
-        self.session.commit()
+        await self._vacate_seat(room_id, seat)
 
     # -- start / stop -------------------------------------------------------
 
     async def force_start(self, user: User, room_id: uuid.UUID) -> Room:
         del user  # authorised by the caller (route); nothing more to check here
-        # Staged, not committed: if `start()` below raises (room full some
-        # other way, capacity exceeded, ...), these human seats must not be
-        # left permanently converted to agent seats with the room stuck
-        # "waiting". `start()`'s own `self.seats(room_id)` query autoflushes
-        # this session's pending changes first, so it still sees the backfill;
-        # everything commits together in `start()`'s single final commit, or
-        # none of it does if `start()` raises and the session later rolls back.
+        # Committed immediately, not staged alongside `start()`'s own final
+        # commit: `start()` can now (Phase 16) *enqueue and return* on the
+        # global capacity cap instead of only ever raising outright, and
+        # `_promote_next_queued_room` later retries that exact room from a
+        # completely different session. An uncommitted backfill living only
+        # in this session's pending changes would be invisible to that
+        # retry -- its own fresh read of the seats would still see the
+        # original open human seats, fail the same "not all filled" check,
+        # and get silently swallowed by that retry's own exception
+        # suppression, permanently orphaning the room in the global queue
+        # with no further signal to anyone. Committing here means a later
+        # capacity-queue enqueue (or any other `start()` failure) leaves the
+        # backfill in place rather than losing it -- a moderator/promotion
+        # retry then just needs one more `start()` call to succeed, instead
+        # of never being able to succeed at all.
         for seat in self.seats(room_id):
-            if seat.kind == "human" and seat.status == "open":
+            # `!= "filled"`, not `== "open"`: also converts a seat mid-offer
+            # (see `start()`'s matching comment) -- force-starting means
+            # "right now, regardless," so a pending offer that never got
+            # accepted is superseded, not left to strand `start()` right
+            # back into `RoomFullError` on the very next line.
+            if seat.kind == "human" and seat.status != "filled":
                 seat.kind = "agent"
                 seat.model = self.registry.default_model
                 seat.persona = "steady"
@@ -472,6 +570,7 @@ class RoomService:
                 seat.user_id = None
                 seat.invited_user_id = None
                 self.session.add(seat)
+        self.session.commit()
         return await self.start(room_id)
 
     async def start(self, room_id: uuid.UUID) -> Room:
@@ -479,7 +578,12 @@ class RoomService:
         if room.status != "waiting":
             raise RoomNotWaitingError(f"room {room_id} is {room.status}")
         seats = self.seats(room_id)
-        if any(s.status == "open" for s in seats):
+        # `!= "filled"`, not `== "open"`: a seat mid-offer (queued for a
+        # specific user, not yet accepted -- see `_offer_seat_to_next_queued`)
+        # is not `"open"` either, but is just as unfilled as one that is;
+        # starting the game with it in that state would silently strand
+        # whoever the offer was made to.
+        if any(s.status != "filled" for s in seats):
             raise RoomFullError(
                 f"room {room_id} still has an open seat; force_start or fill it first"
             )
@@ -516,22 +620,49 @@ class RoomService:
         # Serialises the check-capacity-then-flip-to-"in_progress" step across
         # every worker process (a Postgres advisory lock, not a Python one, so
         # it holds even if this app ever runs with more than one worker).
-        # `capacity_check()` alone (also used by `create()`) only reads the
-        # current count; without this lock two concurrent `start()` calls
-        # could both pass that read before either commits, overshooting
-        # `max_concurrent_games`. Xact-scoped: released automatically at the
-        # commit/rollback that ends this method.
+        # A plain read of the current count alone (what `create()`'s own
+        # `capacity_check()` still does, deliberately unchanged -- a room can
+        # always be *created* regardless of global capacity, only *starting*
+        # it queues) is not enough on its own; without this lock two
+        # concurrent `start()` calls could both pass that read before either
+        # commits, overshooting `max_concurrent_games`. Xact-scoped: released
+        # automatically at the commit/rollback that ends this method.
         # `session.exec()` is SQLModel's wrapper for `select()` returning model
         # rows; a bare `text()` DB call has no model to return, so the plain
         # SQLAlchemy `execute()` is the only option here.
         self.session.execute(  # ty: ignore[deprecated]
             text("SELECT pg_advisory_xact_lock(:key)"), {"key": _START_LOCK_KEY}
         )
-        await self.capacity_check()
+        # Phase 16: queue-aware, not a hard refusal. `position != 1` (queued,
+        # but not yet its turn) enqueues even if capacity happens to be free
+        # right now -- jumping the line just because the caller got lucky on
+        # timing would break the fairness the queue exists to provide.
+        # `position == 1` pops the room off the queue itself before
+        # proceeding (whether this call arrived via a real retry or via
+        # `_promote_next_queued_room`'s suggestion after a slot freed).
+        limit = settings_store.max_concurrent_games(self.session)
+        count = self.session.exec(
+            select(func.count()).select_from(Room).where(Room.status == "in_progress")
+        ).one()
+        position = await self.queue.position("global", str(room_id))
+        if count >= limit or (position is not None and position != 1):
+            await self.queue.enqueue("global", str(room_id))
+            status = await self.queue.snapshot("global", str(room_id))
+            # `pg_advisory_xact_lock` only releases on commit/rollback -- an
+            # uncommitted session left holding it (e.g. a caller that catches
+            # this and keeps working on the same session, as tests do) would
+            # otherwise starve every other connection's start() call on this
+            # same lock key until that session eventually closes. Nothing
+            # written above needs keeping: only reads and the lock call itself.
+            self.session.rollback()
+            raise CapacityExceededError("global", status)
+        if position == 1:
+            await self.queue.pop_next("global")
         # Re-check status: something else could have started or stopped this
         # exact room while we were building specs or waiting for the lock.
         self.session.refresh(room)
         if room.status != "waiting":
+            self.session.rollback()  # see the CapacityExceededError rollback above
             raise RoomNotWaitingError(f"room {room_id} is {room.status}")
 
         try:
@@ -593,6 +724,49 @@ class RoomService:
                 await self._archive_game(session, room, outcome)
             except Exception:
                 log.exception("failed to archive game history for room %s", room_id)
+
+            try:
+                await self._promote_next_queued_room(session)
+            except Exception:
+                log.exception(
+                    "failed to promote the next globally-queued room after "
+                    "room %s finished",
+                    room_id,
+                )
+
+    async def _promote_next_queued_room(self, session: Session) -> None:
+        """A concurrent-game slot just freed (only ever called from
+        ``_finish_room``) -- try to start whatever room is at the head of
+        the global queue, if any. This only ever *suggests* a room to try;
+        the actual dequeue happens inside ``start()``'s own
+        advisory-locked capacity check, not here, so if the real check
+        finds the suggestion is stale (no longer at the head, already
+        started/stopped some other way, or capacity is gone again by the
+        time the lock is acquired) it re-enqueues or no-ops harmlessly
+        instead of double-starting anything."""
+        next_room_id = await self.queue.peek_head("global")
+        if next_room_id is None:
+            return
+        temp_service = RoomService(
+            session, self.runner, self.queue, self.registry, self.bus
+        )
+        try:
+            await temp_service.start(uuid.UUID(next_room_id))
+        except RoomNotWaitingError, RoomFullError, CapacityExceededError:
+            # Expected when the suggestion was stale (see the docstring
+            # above) -- but also what a room stuck with an unfilled seat
+            # (e.g. an interrupted `force_start`) looks like from here, and
+            # that case never resolves itself: it stays at the head of the
+            # global queue and this same suppressed failure repeats every
+            # time a slot frees, forever. Logged (not re-raised -- this is
+            # still best-effort) so a room that's actually stuck is
+            # observable instead of silently retried forever.
+            log.info(
+                "promotion of globally-queued room %s did not start it "
+                "(stale suggestion, or the room itself is not actually "
+                "startable right now)",
+                next_room_id,
+            )
 
     async def _archive_game(self, session: Session, room: Room, outcome: str) -> None:
         """Copies this game's event log from the live ``EventBus`` into

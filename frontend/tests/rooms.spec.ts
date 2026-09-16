@@ -103,6 +103,67 @@ test.describe("Create and play a room", () => {
     await joinerContext.close()
   })
 
+  test("A third joiner is queued, then accepts a seat once someone leaves", async ({
+    browser,
+  }) => {
+    const creatorEmail = randomEmail()
+    const creatorPassword = randomPassword()
+    const joinerEmail = randomEmail()
+    const joinerPassword = randomPassword()
+    const latecomerEmail = randomEmail()
+    const latecomerPassword = randomPassword()
+    await createUser({ email: creatorEmail, password: creatorPassword })
+    await createUser({ email: joinerEmail, password: joinerPassword })
+    await createUser({ email: latecomerEmail, password: latecomerPassword })
+
+    const creatorContext = await browser.newContext()
+    const joinerContext = await browser.newContext()
+    const latecomerContext = await browser.newContext()
+    const creatorPage = await creatorContext.newPage()
+    const joinerPage = await joinerContext.newPage()
+    const latecomerPage = await latecomerContext.newPage()
+
+    await logInUser(creatorPage, creatorEmail, creatorPassword)
+    await logInUser(joinerPage, joinerEmail, joinerPassword)
+    await logInUser(latecomerPage, latecomerEmail, latecomerPassword)
+
+    await creatorPage.getByRole("button", { name: "Create room" }).click()
+    await creatorPage
+      .getByRole("button", { name: "Create", exact: true })
+      .click()
+
+    const codeText = await creatorPage.getByText(/^Code /).textContent()
+    const code = codeText?.replace("Code ", "").split(" ")[0] ?? ""
+    expect(code).not.toBe("")
+
+    // Fill both seats.
+    await joinerPage.goto("/")
+    await joinerPage.getByPlaceholder("Join code").fill(code)
+    await joinerPage.getByRole("button", { name: "Join" }).click()
+    await joinerPage.waitForURL(/\/rooms\/.+/)
+
+    // A third joiner hits a full room -- enqueued, not rejected outright.
+    await latecomerPage.goto("/")
+    await latecomerPage.getByPlaceholder("Join code").fill(code)
+    await latecomerPage.getByRole("button", { name: "Join" }).click()
+    await expect(latecomerPage.getByText("Queued")).toBeVisible()
+    await expect(latecomerPage.getByText(/Position 1 of 1/)).toBeVisible()
+
+    // The creator leaves their own seat, freeing it -- the join queue offers
+    // it straight to the latecomer waiting in line.
+    await creatorPage.getByRole("button", { name: "Leave seat" }).click()
+
+    await expect(latecomerPage.getByText("Seat ready")).toBeVisible({
+      timeout: 10_000,
+    })
+    await latecomerPage.getByRole("button", { name: "Accept seat" }).click()
+    await latecomerPage.waitForURL(/\/rooms\/.+/)
+
+    await creatorContext.close()
+    await joinerContext.close()
+    await latecomerContext.close()
+  })
+
   test("Two human players can exchange chat, seen live on both pages", async ({
     browser,
   }) => {

@@ -12,6 +12,7 @@ import uuid
 from typing import Literal
 
 import pytest
+from redis.asyncio import Redis
 from sqlmodel import Session
 
 from app import settings_store
@@ -19,10 +20,12 @@ from app.authz import load_permissions
 from app.authz.permissions import P
 from app.core.config import settings
 from app.events import InMemoryEventBus
+from app.llm import ModelRegistry
 from app.metrics import ACTIVE_GAMES, MOVES_TOTAL
 from app.models import RoomCreate, RoomSeatSpec
 from app.referee import GameRunner
 from app.rooms.codes import is_valid_code
+from app.rooms.queue import JoinQueue
 from app.rooms.service import (
     CapacityExceededError,
     RoomFullError,
@@ -283,7 +286,7 @@ async def test_leave_frees_the_seat(db: Session, service: RoomService) -> None:
     room = await service.create(creator, _two_human())
     joiner = create_random_user(db)
     await service.join_by_code(joiner, room.code)
-    service.leave(joiner, room.id)
+    await service.leave(joiner, room.id)
     seat = next(s for s in service.seats(room.id) if s.seat == 0)
     assert seat.status == "open"
     assert seat.user_id is None
@@ -294,7 +297,7 @@ async def test_leave_is_a_noop_when_not_seated(
 ) -> None:
     creator = create_random_user(db)
     room = await service.create(creator, _two_human())
-    service.leave(create_random_user(db), room.id)  # must not raise
+    await service.leave(create_random_user(db), room.id)  # must not raise
 
 
 async def test_leave_blocked_once_in_progress(
@@ -304,7 +307,7 @@ async def test_leave_blocked_once_in_progress(
     room = await service.create(creator, _two_agent())
     await service.start(room.id)
     try:
-        service.leave(creator, room.id)  # no-op: room is in_progress
+        await service.leave(creator, room.id)  # no-op: room is in_progress
         seats = service.seats(room.id)
         assert all(s.status == "filled" for s in seats)
     finally:
@@ -648,3 +651,191 @@ async def test_finish_room_does_not_overwrite_an_already_stopped_room(
     db.expire(room)
 
     assert service.get(room.id).status == "stopped"
+
+
+# -- queueing (Phase 16) -------------------------------------------------
+
+
+async def test_join_by_code_enqueues_when_room_is_full(
+    db: Session, service: RoomService
+) -> None:
+    creator = create_random_user(db)
+    room = await service.create(creator, _two_human())
+    for _ in range(2):
+        await service.join_by_code(create_random_user(db), room.code)
+
+    latecomer = create_random_user(db)
+    with pytest.raises(RoomFullError):
+        await service.join_by_code(latecomer, room.code)
+    assert await service.queue.position(f"room:{room.id}", str(latecomer.id)) == 1
+
+
+async def test_leave_offers_the_freed_seat_and_a_random_joiner_cannot_steal_it(
+    db: Session, service: RoomService
+) -> None:
+    creator = create_random_user(db)
+    room = await service.create(creator, _two_human())
+    occupants = [create_random_user(db) for _ in range(2)]
+    seats = [await service.join_by_code(u, room.code) for u in occupants]
+
+    waiter = create_random_user(db)
+    with pytest.raises(RoomFullError):
+        await service.join_by_code(waiter, room.code)
+
+    await service.leave(occupants[0], room.id)
+    freed_seat = seats[0].seat
+    reloaded = next(s for s in service.seats(room.id) if s.seat == freed_seat)
+    assert reloaded.status == "offered"  # held for the waiter, not generally open
+    assert reloaded.user_id is None
+
+    # A fresh joiner (never queued) cannot steal an "offered" seat -- only
+    # the waiter's own accept can claim it.
+    other = create_random_user(db)
+    with pytest.raises(RoomFullError):
+        await service.join_by_code(other, room.code)
+
+    target = await service.join_by_code(waiter, room.code)
+    assert target.seat == freed_seat
+    assert target.user_id == waiter.id
+    assert target.status == "filled"
+
+
+async def test_expired_offer_is_reclaimed_and_reoffered_to_the_next_waiter(
+    db: Session,
+    runner: GameRunner,
+    registry: ModelRegistry,
+    bus: InMemoryEventBus,
+    rds: Redis,
+) -> None:
+    """A real, short TTL (not a `now_ms` override -- that's already
+    covered at the `JoinQueue` level in `tests/unit/test_join_queue.py`;
+    this proves the *RoomService*-level reclaim-and-reoffer end to end)."""
+    fast_queue = JoinQueue(rds, offer_ttl_s=1)
+    service = RoomService(db, runner, fast_queue, registry, bus)
+
+    creator = create_random_user(db)
+    room = await service.create(creator, _two_human())
+    a, b = create_random_user(db), create_random_user(db)
+    await service.join_by_code(a, room.code)
+    await service.join_by_code(b, room.code)
+
+    first_waiter = create_random_user(db)
+    second_waiter = create_random_user(db)
+    with pytest.raises(RoomFullError):
+        await service.join_by_code(first_waiter, room.code)
+    with pytest.raises(RoomFullError):
+        await service.join_by_code(second_waiter, room.code)
+
+    await service.leave(a, room.id)  # offers a's seat to first_waiter
+    await asyncio.sleep(1.2)  # let the 1s offer genuinely expire
+
+    # first_waiter's own retry sweeps first (finds no live offer -- it
+    # just expired), reclaiming the seat; since first_waiter is still at
+    # the head of the line (this was their only miss so far), it's
+    # immediately re-offered and re-accepted within this same call --
+    # a self-healing retry, not a second failure.
+    target = await service.join_by_code(first_waiter, room.code)
+    assert target.user_id == first_waiter.id
+
+    # second_waiter was never touched by any of this -- still queued,
+    # now at the head.
+    assert await fast_queue.position(f"room:{room.id}", str(second_waiter.id)) == 1
+
+
+async def test_finish_room_promotes_the_next_globally_queued_room(
+    db: Session, service: RoomService, runner: GameRunner
+) -> None:
+    """A concurrent-game slot freeing (via `_finish_room`) tries to start
+    whatever room is at the head of the global queue -- the join-queue
+    wiring (Phase 16), not the model-swap scheduler (also Phase 16, but a
+    separate concern)."""
+    settings_store.set_value(db, "max_concurrent_games", 1, None)
+    room_b = None
+    try:
+        creator = create_random_user(db)
+        room_a = await service.create(creator, _two_agent())
+        room_b = await service.create(creator, _two_agent())  # both still "waiting"
+        # Simulate a running game without a real GameRunner task -- matches
+        # `test_finish_room_writes_finished_and_finished_at`'s own pattern
+        # above; capacity accounting only ever reads `Room.status` from the
+        # DB, so this alone is enough to make room_b's start() see count>=limit.
+        # (Must happen *after* both creates: `create()` itself is still
+        # gated by the unchanged, hard-refusing `capacity_check()`.)
+        room_a.status = "in_progress"
+        db.add(room_a)
+        db.commit()
+
+        with pytest.raises(CapacityExceededError):
+            await service.start(room_b.id)
+        assert await service.queue.position("global", str(room_b.id)) == 1
+
+        await service._finish_room(str(room_a.id), "finished")
+        db.expire_all()
+
+        # Promotion runs `start()` on room_b for real, from inside
+        # `_finish_room`'s own fresh session -- poll rather than assume
+        # it's already committed and visible to this session.
+        for _ in range(200):
+            if service.get(room_b.id).status == "in_progress":
+                break
+            await asyncio.sleep(0.01)
+        assert service.get(room_b.id).status == "in_progress"
+        assert runner.get(str(room_b.id)) is not None
+        assert await service.queue.position("global", str(room_b.id)) is None
+    finally:
+        if room_b is not None:
+            await service.stop(room_b.id, "test cleanup")
+        settings_store.set_value(
+            db, "max_concurrent_games", settings.MAX_CONCURRENT_GAMES, None
+        )
+
+
+async def test_force_start_backfill_survives_a_capacity_queue_rollback(
+    db: Session, service: RoomService, runner: GameRunner
+) -> None:
+    """`force_start`'s human->agent seat backfill must survive `start()`
+    hitting the global capacity cap: `start()` now (Phase 16) enqueues and
+    rolls back on `CapacityExceededError` instead of only ever raising
+    outright, and `_promote_next_queued_room` later retries this exact room
+    from a completely different session. If the backfill were only staged
+    (not committed) on this session, that retry's own fresh read of the
+    seats would still see the original open human seats, fail the same
+    "not all filled" check `start()` itself enforces, and get silently
+    swallowed -- permanently orphaning the room in the global queue with no
+    way to ever succeed."""
+    settings_store.set_value(db, "max_concurrent_games", 1, None)
+    room_b = None
+    try:
+        creator = create_random_user(db)
+        room_a = await service.create(creator, _two_agent())
+        room_b = await service.create(creator, _two_human())  # unfilled human seats
+        room_a.status = "in_progress"
+        db.add(room_a)
+        db.commit()
+
+        with pytest.raises(CapacityExceededError):
+            await service.force_start(creator, room_b.id)
+
+        # The backfill committed despite `start()`'s rollback -- not staged
+        # and lost with it.
+        db.expire_all()
+        assert all(
+            s.kind == "agent" and s.status == "filled" for s in service.seats(room_b.id)
+        )
+        assert await service.queue.position("global", str(room_b.id)) == 1
+
+        await service._finish_room(str(room_a.id), "finished")
+        db.expire_all()
+
+        for _ in range(200):
+            if service.get(room_b.id).status == "in_progress":
+                break
+            await asyncio.sleep(0.01)
+        assert service.get(room_b.id).status == "in_progress"
+        assert runner.get(str(room_b.id)) is not None
+    finally:
+        if room_b is not None:
+            await service.stop(room_b.id, "test cleanup")
+        settings_store.set_value(
+            db, "max_concurrent_games", settings.MAX_CONCURRENT_GAMES, None
+        )

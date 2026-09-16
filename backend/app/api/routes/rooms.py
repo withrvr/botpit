@@ -55,7 +55,7 @@ from app.models import (
 )
 from app.ratelimit import check_rate, rate_limit_from_setting
 from app.rooms.guard import resolve_subscriber, subscription_guard
-from app.rooms.queue import JoinQueue
+from app.rooms.queue import JoinQueue, QueueStatus
 from app.rooms.service import (
     NotSeatedError,
     NotYourTurnError,
@@ -211,9 +211,14 @@ async def join_room(
     except RoomNotWaitingError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except RoomFullError as exc:
-        status = await queue.snapshot(f"room:{exc.room_id}", str(user.id))
+        queue_status = await queue.snapshot(f"room:{exc.room_id}", str(user.id))
         return JSONResponse(
-            {"detail": str(exc), "queue": status.model_dump()}, status_code=409
+            {
+                "detail": str(exc),
+                "room_id": str(exc.room_id),
+                "queue": queue_status.model_dump(),
+            },
+            status_code=409,
         )
     return RoomSeatJoinPublic(
         **_seat_public(seat, reveal=True).model_dump(), room_id=seat.room_id
@@ -221,11 +226,11 @@ async def join_room(
 
 
 @router.post("/{room_id}/leave", response_model=Message)
-def leave_room(
+async def leave_room(
     *, service: RoomServiceDep, user: CurrentUser, room_id: uuid.UUID
 ) -> Any:
     try:
-        service.leave(user, room_id)
+        await service.leave(user, room_id)
     except LookupError:
         raise HTTPException(status_code=404, detail="Room not found")
     return Message(message="left")
@@ -297,14 +302,41 @@ async def stop_room(
     return _room_public(room, service.seats(room_id))
 
 
-@router.get("/{room_id}/queue")
+@router.get("/{room_id}/queue", response_model=QueueStatus)
 async def room_queue(
-    *, queue: JoinQueueDep, user: CurrentUser, room_id: uuid.UUID
+    *,
+    service: RoomServiceDep,
+    queue: JoinQueueDep,
+    user: CurrentUser,
+    room_id: uuid.UUID,
+    scope: Literal["seat", "global"] = "seat",
 ) -> Any:
-    status = await queue.snapshot(f"room:{room_id}", str(user.id))
-    if status.position is None:
+    # "seat" (default): is *this user* waiting for (or offered) a seat in
+    # this room. "global" (DECISIONS.md §2's concurrent-game cap): is *this
+    # room itself* waiting for a slot to start in -- same JoinQueue, same
+    # QueueStatus shape, just keyed by room id instead of user id.
+    #
+    # There is no standalone sweeper task (docs/capacity-and-queueing.md's
+    # "Left for later" -- reclaim happens opportunistically instead): a
+    # `join_by_code` retry sweeps stale offers as a side effect, and so does
+    # every poll of this route while the waiting party's own queue UI is
+    # open. A seat offer with nobody polling and nobody else ever retrying
+    # that exact room would stay stale until one of those two things
+    # happens -- a real, bounded gap, not a silent one.
+    if scope == "seat":
+        await service._reclaim_expired_offers(room_id)
+    key, member = (
+        ("global", str(room_id))
+        if scope == "global"
+        else (
+            f"room:{room_id}",
+            str(user.id),
+        )
+    )
+    queue_status = await queue.snapshot(key, member)
+    if queue_status.position is None and not queue_status.offered:
         raise HTTPException(status_code=404, detail="not queued")
-    return status
+    return queue_status
 
 
 # -- live play (Phase 8: the minimal API a human plays through) -------------
